@@ -16,3 +16,5 @@ std = []
 global_reference = ["std"]
 default = ["std"]
 
+[dependencies]
+serde = { version = "1.0", optional = true }

@@ -9,7 +9,8 @@ use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display},
     num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, TryFromIntError},
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Range, Rem, RemAssign, Sub, SubAssign},
+    str::FromStr,
 };
 
 /// An interval in between time stamps.
@@ -28,10 +29,30 @@ impl TimeSpan {
             if span >= Self::DAY {
                 let days = span / Self::DAY;
                 span %= Self::DAY;
-                write!(f, "{}d", days)?;
-            }
 
-            if span >= Self::HOUR {
+                let hours = span / Self::HOUR;
+                span %= Self::HOUR;
+
+                let minutes = span / Self::MINUTE;
+                span %= Self::MINUTE;
+
+                let seconds = span / Self::SECOND;
+                span %= Self::SECOND;
+
+                let millis = span / Self::MILLISECOND;
+
+                if millis > 0 {
+                    write!(
+                        f,
+                        "{}d{:02}:{:02}:{:02}.{:03}",
+                        days, hours, minutes, seconds, millis
+                    )
+                } else if seconds > 0 {
+                    write!(f, "{}d{:02}:{:02}:{:02}", days, hours, minutes, seconds)
+                } else {
+                    write!(f, "{}d{:02}:{:02}", days, hours, minutes)
+                }
+            } else if span >= Self::HOUR {
                 let hours = span / Self::HOUR;
                 span %= Self::HOUR;
 
@@ -137,6 +158,410 @@ impl Display for TimeSpan {
             self.fmt_full(f)
         } else {
             self.fmt(f)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum TimeSpanParseErr {
+    NonASCII,
+    StringTooLarge { len: usize },
+    IntParseError { source: core::num::ParseIntError },
+    UnexpectedDelimeter { delim: char, pos: usize },
+    UnexpectedEndOfString,
+    UnexpectedSuffix,
+    HoursOutOfBound { hours: u64 },
+    MinutesOutOfBound { minutes: u64 },
+    SecondsOutOfBound { seconds: u64 },
+}
+
+impl fmt::Display for TimeSpanParseErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonASCII => f.write_str("Time spans encoded in strings are always ASCII"),
+            Self::StringTooLarge { len } => {
+                write!(
+                    f,
+                    "Valid time span string may never exceed {} bytes. String is {}",
+                    MAX_TIME_SPAN_STRING, len
+                )
+            }
+            Self::IntParseError { .. } => f.write_str("Failed to parse integer"),
+            Self::UnexpectedDelimeter { delim, pos } => {
+                write!(f, "Unexpected delimeter '{}' at {}", delim, pos)
+            }
+            Self::UnexpectedEndOfString => f.write_str("Unexpected end of string"),
+            Self::UnexpectedSuffix => {
+                f.write_str("Unexpected suffix. Only `s`, `ms` and `us` suffixes are supported")
+            }
+            Self::HoursOutOfBound { hours } => {
+                write!(f, "Hours must be in range 0-23 when days are specified. Value at hours position is '{}'", hours)
+            }
+            Self::MinutesOutOfBound { minutes } => {
+                write!(f, "Minutes must be in range 0-59 when hours are specified. Value at minutes position is '{}'", minutes)
+            }
+            Self::SecondsOutOfBound { seconds } => {
+                write!(
+                    f,
+                    "Seconds must be in range 0-59 when minutes are specified. Value at seconds position is '{}'", seconds
+                )
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for TimeSpanParseErr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IntParseError { source } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+const MAX_TIME_SPAN_STRING: usize = 48;
+
+impl FromStr for TimeSpan {
+    type Err = TimeSpanParseErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.is_ascii() {
+            return Err(TimeSpanParseErr::NonASCII);
+        }
+
+        if s.len() > MAX_TIME_SPAN_STRING {
+            return Err(TimeSpanParseErr::StringTooLarge { len: s.len() });
+        }
+
+        let mut seps = s.match_indices(|c: char| !c.is_ascii_digit() && !c.is_ascii_whitespace());
+
+        struct Ranges {
+            days: Option<Range<usize>>,
+            hours: Option<Range<usize>>,
+            minutes: Option<Range<usize>>,
+            seconds: Option<Range<usize>>,
+            fract: Option<Range<usize>>,
+            denom: u32,
+        }
+
+        impl Ranges {
+            fn parse(self, s: &str) -> Result<TimeSpan, TimeSpanParseErr> {
+                let seconds: u64 = self
+                    .seconds
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                if self.minutes.is_some() && seconds > 59 {
+                    return Err(TimeSpanParseErr::SecondsOutOfBound { seconds });
+                }
+
+                let minutes: u64 = self
+                    .minutes
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                if self.hours.is_some() && minutes > 59 {
+                    return Err(TimeSpanParseErr::MinutesOutOfBound { minutes });
+                }
+
+                let hours: u64 = self
+                    .hours
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                if self.days.is_some() && hours > 23 {
+                    return Err(TimeSpanParseErr::HoursOutOfBound { hours });
+                }
+
+                let days: u64 = self
+                    .days
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                let fract: u64 = self
+                    .fract
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+                let micros = if self.denom > 6 {
+                    fract / 10u64.pow(self.denom - 6)
+                } else {
+                    fract * 10u64.pow(6 - self.denom)
+                };
+
+                Ok(days * TimeSpan::DAY
+                    + hours * TimeSpan::HOUR
+                    + minutes * TimeSpan::MINUTE
+                    + seconds * TimeSpan::SECOND
+                    + micros * TimeSpan::MICROSECOND)
+            }
+        }
+
+        match seps.next() {
+            Some((dh, "d")) => match seps.next() {
+                Some((hm, ":")) => match seps.next() {
+                    None => Ranges {
+                        days: Some(0..dh),
+                        hours: Some(dh + 1..hm),
+                        minutes: Some(hm + 1..s.len()),
+                        seconds: None,
+                        fract: None,
+                        denom: 0,
+                    },
+                    Some((ms, ":")) => match seps.next() {
+                        None => Ranges {
+                            days: Some(0..dh),
+                            hours: Some(dh + 1..hm),
+                            minutes: Some(hm + 1..ms),
+                            seconds: Some(ms + 1..s.len()),
+                            fract: None,
+                            denom: 0,
+                        },
+                        Some((sf, ".")) => {
+                            if let Some((pos, delim)) = seps.next() {
+                                return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                                    delim: delim.chars().next().unwrap(),
+                                    pos,
+                                });
+                            } else {
+                                Ranges {
+                                    days: Some(0..dh),
+                                    hours: Some(dh + 1..hm),
+                                    minutes: Some(hm + 1..ms),
+                                    seconds: Some(ms + 1..sf),
+                                    fract: Some(sf + 1..s.len().min(sf + 21)),
+                                    denom: (s.len() - sf - 1) as u32,
+                                }
+                            }
+                        }
+
+                        Some((pos, delim)) => {
+                            return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                                delim: delim.chars().next().unwrap(),
+                                pos,
+                            });
+                        }
+                    },
+                    Some((pos, delim)) => {
+                        return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                            delim: delim.chars().next().unwrap(),
+                            pos,
+                        });
+                    }
+                },
+                Some((pos, delim)) => {
+                    return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                        delim: delim.chars().next().unwrap(),
+                        pos,
+                    });
+                }
+                None => {
+                    return Err(TimeSpanParseErr::UnexpectedEndOfString);
+                }
+            },
+            Some((hms, ":")) => match seps.next() {
+                Some((ms, ":")) => match seps.next() {
+                    Some((sf, ".")) => {
+                        if let Some((pos, delim)) = seps.next() {
+                            return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                                delim: delim.chars().next().unwrap(),
+                                pos,
+                            });
+                        } else {
+                            Ranges {
+                                days: None,
+                                hours: Some(0..hms),
+                                minutes: Some(hms + 1..ms),
+                                seconds: Some(ms + 1..sf),
+                                fract: Some(sf + 1..s.len().min(sf + 21)),
+                                denom: (s.len() - sf - 1) as u32,
+                            }
+                        }
+                    }
+                    None => Ranges {
+                        days: None,
+                        hours: Some(0..hms),
+                        minutes: Some(hms + 1..ms),
+                        seconds: Some(ms + 1..s.len()),
+                        fract: None,
+                        denom: 0,
+                    },
+                    Some((pos, delim)) => {
+                        return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                            delim: delim.chars().next().unwrap(),
+                            pos,
+                        });
+                    }
+                },
+                Some((sf, ".")) => {
+                    if let Some((pos, delim)) = seps.next() {
+                        return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                            delim: delim.chars().next().unwrap(),
+                            pos,
+                        });
+                    } else {
+                        Ranges {
+                            days: None,
+                            hours: None,
+                            minutes: Some(0..hms),
+                            seconds: Some(hms + 1..sf),
+                            fract: Some(sf + 1..s.len()),
+                            denom: (s.len() - sf - 1) as u32,
+                        }
+                    }
+                }
+                None => Ranges {
+                    days: None,
+                    hours: None,
+                    minutes: Some(0..hms),
+                    seconds: Some(hms + 1..s.len()),
+                    fract: None,
+                    denom: 0,
+                },
+                Some((pos, delim)) => {
+                    return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                        delim: delim.chars().next().unwrap(),
+                        pos,
+                    });
+                }
+            },
+
+            Some((sf, ".")) => {
+                if let Some((pos, delim)) = seps.next() {
+                    return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                        delim: delim.chars().next().unwrap(),
+                        pos,
+                    });
+                } else {
+                    Ranges {
+                        days: None,
+                        hours: None,
+                        minutes: None,
+                        seconds: Some(0..sf),
+                        fract: Some(sf + 1..s.len()),
+                        denom: (s.len() - sf - 1) as u32,
+                    }
+                }
+            }
+
+            Some((suffix, "s")) => {
+                if s[suffix..].trim() != "s" {
+                    return Err(TimeSpanParseErr::UnexpectedSuffix);
+                }
+
+                let seconds: u64 = s[..suffix]
+                    .trim()
+                    .parse()
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+                return Ok(seconds * Self::SECOND);
+            }
+
+            Some((suffix, "m")) => {
+                if s[suffix..].trim() != "ms" {
+                    return Err(TimeSpanParseErr::UnexpectedSuffix);
+                }
+
+                let millis: u64 = s[..suffix]
+                    .trim()
+                    .parse()
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+                return Ok(millis * Self::MILLISECOND);
+            }
+
+            Some((suffix, "u")) => {
+                if s[suffix..].trim() != "us" {
+                    return Err(TimeSpanParseErr::UnexpectedSuffix);
+                }
+
+                let micros: u64 = s[..suffix]
+                    .trim()
+                    .parse()
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+                return Ok(micros * Self::MICROSECOND);
+            }
+
+            None => {
+                let seconds: u64 = s
+                    .trim()
+                    .parse()
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+                return Ok(seconds * Self::SECOND);
+            }
+
+            Some((pos, delim)) => {
+                return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                    delim: delim.chars().next().unwrap(),
+                    pos,
+                });
+            }
+        }
+        .parse(s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for TimeSpan {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize in pretty format for human readable serializer
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_string())
+        } else {
+            serializer.serialize_u64(self.nanos)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for TimeSpan {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = TimeSpan;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.write_str("String with encoded time span or integer representing nanoseconds")
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(TimeSpan { nanos: v })
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if v < 0 {
+                    Err(E::custom("TimeSpan cannot be negative"))
+                } else {
+                    Ok(TimeSpan { nanos: v as u64 })
+                }
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                v.parse().map_err(|err| E::custom(err))
+            }
+        }
+
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_str(Visitor)
+        } else {
+            deserializer.deserialize_u64(Visitor)
         }
     }
 }
@@ -919,6 +1344,7 @@ impl_for_nonzero_int!(NonZeroU8 NonZeroU16 NonZeroU32 NonZeroU64);
 
 #[test]
 fn test_span_print() {
+    assert_eq!("1d00:00", TimeSpan::DAY.to_string());
     assert_eq!("1:00:00", TimeSpan::HOUR.to_string());
     assert_eq!("1:00", TimeSpan::MINUTE.to_string());
     assert_eq!("1s", TimeSpan::SECOND.to_string());
@@ -936,5 +1362,28 @@ fn test_span_print() {
     assert_eq!(
         "2:11.011",
         (2 * TimeSpan::MINUTE + 11 * TimeSpan::SECOND + 11 * TimeSpan::MILLISECOND).to_string()
+    );
+}
+
+#[test]
+fn test_span_parse() {
+    assert_eq!("1d00:00".parse::<TimeSpan>().unwrap(), TimeSpan::DAY);
+    assert_eq!("1:00:00".parse::<TimeSpan>().unwrap(), TimeSpan::HOUR);
+    assert_eq!("1:00".parse::<TimeSpan>().unwrap(), TimeSpan::MINUTE);
+    assert_eq!("1s".parse::<TimeSpan>().unwrap(), TimeSpan::SECOND);
+
+    assert_eq!(
+        "1:02:11".parse::<TimeSpan>().unwrap(),
+        TimeSpan::HOUR + 2 * TimeSpan::MINUTE + 11 * TimeSpan::SECOND
+    );
+
+    assert_eq!(
+        "2:11.011".parse::<TimeSpan>().unwrap(),
+        2 * TimeSpan::MINUTE + 11 * TimeSpan::SECOND + 11 * TimeSpan::MILLISECOND
+    );
+
+    assert_eq!(
+        "2:11.011".parse::<TimeSpan>().unwrap(),
+        2 * TimeSpan::MINUTE + 11 * TimeSpan::SECOND + 11 * TimeSpan::MILLISECOND
     );
 }
