@@ -14,6 +14,7 @@ use core::{
 };
 
 /// An interval in between time stamps.
+/// This type is used to represent durations with nanosecond precision.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TimeSpan {
@@ -567,22 +568,70 @@ impl<'de> serde::Deserialize<'de> for TimeSpan {
 }
 
 impl TimeSpan {
+    /// Zero time span.
+    ///
+    /// Represents duration between equal time points.
     pub const ZERO: Self = TimeSpan { nanos: 0 };
+
+    /// One nanosecond span.
+    /// Minimal possible time span supported by this type.
     pub const NANOSECOND: Self = TimeSpan { nanos: 1 };
+
+    /// One microsecond span.
     pub const MICROSECOND: Self = TimeSpan { nanos: 1_000 };
+
+    /// One millisecond span.
     pub const MILLISECOND: Self = TimeSpan { nanos: 1_000_000 };
+
+    /// One second span.
     pub const SECOND: Self = TimeSpan {
         nanos: 1_000_000_000,
     };
+
+    /// One minute span.
     pub const MINUTE: Self = TimeSpan {
         nanos: 60_000_000_000,
     };
+
+    /// One hour span.
     pub const HOUR: Self = TimeSpan {
         nanos: 3_600_000_000_000,
     };
+
+    /// One day span.
     pub const DAY: Self = TimeSpan {
         nanos: 86_400_000_000_000,
     };
+
+    /// One week.
+    /// Defined as 7 days.
+    pub const WEEK: Self = TimeSpan {
+        nanos: 604_800_000_000_000,
+    };
+
+    /// One Julian year.
+    /// Average year length in Julian calendar.
+    /// Defined as 365.25 days.
+    pub const JULIAN_YEAR: Self = TimeSpan {
+        nanos: 31_557_600_000_000_000,
+    };
+
+    /// One Gregorian year.
+    /// Average year length in Gregorian calendar.
+    /// Defined as 365.2425 days.
+    pub const GREGORIAN_YEAR: Self = TimeSpan {
+        nanos: 31_556_952_000_000,
+    };
+
+    /// One solar year (tropical year).
+    /// Defined as 365.24219 days.
+    pub const SOLAR_YEAR: Self = TimeSpan {
+        nanos: 31_556_925_216_000_000,
+    };
+
+    /// One year.
+    /// Closest value to the average length of a year on Earth.
+    pub const YEAR: Self = Self::SOLAR_YEAR;
 
     /// Constructs time span from number of nanoseconds.
     #[inline(always)]
@@ -1235,23 +1284,51 @@ impl Rem<NonZeroU64> for NonZeroTimeSpan {
     }
 }
 
+/// This trait adds methods to integers to convert values into `TimeSpan`s.
 pub trait TimeSpanNumExt {
+    /// Convert integer value into `TimeSpan` with that amount of nanoseconds.
     fn nanoseconds(self) -> TimeSpan;
+
+    /// Convert integer value into `TimeSpan` with that amount of microseconds.
     fn microseconds(self) -> TimeSpan;
+
+    /// Convert integer value into `TimeSpan` with that amount of milliseconds.
     fn milliseconds(self) -> TimeSpan;
+
+    /// Convert integer value into `TimeSpan` with that amount of seconds.
     fn seconds(self) -> TimeSpan;
+
+    /// Convert integer value into `TimeSpan` with that amount of minutes.
     fn minutes(self) -> TimeSpan;
+
+    /// Convert integer value into `TimeSpan` with that amount of hours.
     fn hours(self) -> TimeSpan;
+
+    /// Convert integer value into `TimeSpan` with that amount of days.
     fn days(self) -> TimeSpan;
 }
 
+/// This trait adds methods to non-zero integers to convert values into `NonZeroTimeSpan`s.
 pub trait NonZeroTimeSpanNumExt {
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of nanoseconds.
     fn nanoseconds(self) -> NonZeroTimeSpan;
+
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of microseconds.
     fn microseconds(self) -> NonZeroTimeSpan;
+
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of milliseconds.
     fn milliseconds(self) -> NonZeroTimeSpan;
+
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of seconds.
     fn seconds(self) -> NonZeroTimeSpan;
+
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of minutes.
     fn minutes(self) -> NonZeroTimeSpan;
+
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of hours.
     fn hours(self) -> NonZeroTimeSpan;
+
+    /// Convert integer value into `NonZeroTimeSpan` with that amount of days.
     fn days(self) -> NonZeroTimeSpan;
 }
 
