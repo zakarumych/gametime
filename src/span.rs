@@ -11,6 +11,7 @@ use core::{
     num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, TryFromIntError},
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Range, Rem, RemAssign, Sub, SubAssign},
     str::FromStr,
+    time::Duration,
 };
 
 /// An interval in between time stamps.
@@ -567,6 +568,24 @@ impl<'de> serde::Deserialize<'de> for TimeSpan {
     }
 }
 
+impl From<Duration> for TimeSpan {
+    #[inline]
+    fn from(duration: Duration) -> Self {
+        let nanos = duration.as_nanos();
+        debug_assert!(u64::MAX as u128 > nanos);
+        TimeSpan {
+            nanos: nanos as u64,
+        }
+    }
+}
+
+impl From<TimeSpan> for Duration {
+    #[inline]
+    fn from(span: TimeSpan) -> Self {
+        Duration::new(span.as_seconds(), (span.as_nanos() % 1000000000) as u32)
+    }
+}
+
 impl TimeSpan {
     /// Zero time span.
     ///
@@ -643,6 +662,61 @@ impl TimeSpan {
     #[inline(always)]
     pub const fn as_nanos(self) -> u64 {
         self.nanos
+    }
+
+    /// Returns number of microseconds this value represents.
+    #[inline]
+    pub const fn as_micros(&self) -> u64 {
+        self.nanos / Self::MICROSECOND.nanos
+    }
+
+    /// Returns number of whole milliseconds this value represents.
+    #[inline]
+    pub const fn as_millis(&self) -> u64 {
+        self.nanos / Self::MILLISECOND.nanos
+    }
+
+    /// Returns number of whole seconds this value represents.
+    #[inline]
+    pub const fn as_seconds(&self) -> u64 {
+        self.nanos / Self::SECOND.nanos
+    }
+
+    /// Returns number of whole minutes this value represents.
+    #[inline]
+    pub const fn as_minutes(&self) -> u64 {
+        self.nanos / Self::MINUTE.nanos
+    }
+
+    /// Returns number of whole hours this value represents.
+    #[inline]
+    pub const fn as_hours(&self) -> u64 {
+        self.nanos / Self::HOUR.nanos
+    }
+
+    /// Returns number of whole days this value represents.
+    #[inline]
+    pub const fn as_days(&self) -> u64 {
+        self.nanos / Self::DAY.nanos
+    }
+
+    /// Returns number of whole weeks this value represents.
+    #[inline]
+    pub const fn as_weeks(&self) -> u64 {
+        self.nanos / Self::WEEK.nanos
+    }
+
+    /// Returns number of seconds as floating point value.
+    /// This function should be used for small-ish spans when high precision is not required.
+    #[inline]
+    pub fn as_secs_f32(&self) -> f32 {
+        self.nanos as f32 / Self::SECOND.nanos as f32
+    }
+
+    /// Returns number of seconds as high precision floating point value.
+    #[inline]
+    pub fn as_secs_f64(&self) -> f64 {
+        self.nanos as f64 / Self::SECOND.nanos as f64
     }
 
     #[inline(always)]
@@ -754,38 +828,136 @@ impl TryFrom<TimeSpan> for NonZeroTimeSpan {
 }
 
 impl NonZeroTimeSpan {
+    /// One nanosecond span.
+    /// Minimal possible time span supported by this type.
     pub const NANOSECOND: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(1) },
     };
+
+    /// One microsecond span.
     pub const MICROSECOND: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(1_000) },
     };
+
+    /// One millisecond span.
     pub const MILLISECOND: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(1_000_000) },
     };
+
+    /// One second span.
     pub const SECOND: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(1_000_000_000) },
     };
+
+    /// One minute span.
     pub const MINUTE: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(60_000_000_000) },
     };
+
+    /// One hour span.
     pub const HOUR: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(3_600_000_000_000) },
     };
+
+    /// One day span.
     pub const DAY: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(86_400_000_000_000) },
     };
+
+    /// One week.
+    /// Defined as 7 days.
+    pub const WEEK: Self = NonZeroTimeSpan {
+        nanos: unsafe { NonZeroU64::new_unchecked(604_800_000_000_000) },
+    };
+
+    /// One Julian year.
+    /// Average year length in Julian calendar.
+    /// Defined as 365.25 days.
+    pub const JULIAN_YEAR: Self = NonZeroTimeSpan {
+        nanos: unsafe { NonZeroU64::new_unchecked(31_557_600_000_000_000) },
+    };
+
+    /// One Gregorian year.
+    /// Average year length in Gregorian calendar.
+    /// Defined as 365.2425 days.
+    pub const GREGORIAN_YEAR: Self = NonZeroTimeSpan {
+        nanos: unsafe { NonZeroU64::new_unchecked(31_556_952_000_000) },
+    };
+
+    /// One solar year (tropical year).
+    /// Defined as 365.24219 days.
+    pub const SOLAR_YEAR: Self = NonZeroTimeSpan {
+        nanos: unsafe { NonZeroU64::new_unchecked(31_556_925_216_000_000) },
+    };
+
+    /// One year.
+    /// Closest value to the average length of a year on Earth.
+    pub const YEAR: Self = Self::SOLAR_YEAR;
 
     /// Constructs time span from number of nanoseconds.
     #[inline(always)]
     pub const fn new(nanos: NonZeroU64) -> NonZeroTimeSpan {
         NonZeroTimeSpan { nanos }
     }
-
     /// Returns number of nanoseconds in this time span.
     #[inline(always)]
-    pub const fn as_nanos(&self) -> NonZeroU64 {
+    pub const fn as_nanos(self) -> NonZeroU64 {
         self.nanos
+    }
+
+    /// Returns number of microseconds this value represents.
+    #[inline]
+    pub const fn as_micros(&self) -> u64 {
+        self.nanos.get() / Self::MICROSECOND.nanos.get()
+    }
+
+    /// Returns number of whole milliseconds this value represents.
+    #[inline]
+    pub const fn as_millis(&self) -> u64 {
+        self.nanos.get() / Self::MILLISECOND.nanos.get()
+    }
+
+    /// Returns number of whole seconds this value represents.
+    #[inline]
+    pub const fn as_seconds(&self) -> u64 {
+        self.nanos.get() / Self::SECOND.nanos.get()
+    }
+
+    /// Returns number of whole minutes this value represents.
+    #[inline]
+    pub const fn as_minutes(&self) -> u64 {
+        self.nanos.get() / Self::MINUTE.nanos.get()
+    }
+
+    /// Returns number of whole hours this value represents.
+    #[inline]
+    pub const fn as_hours(&self) -> u64 {
+        self.nanos.get() / Self::HOUR.nanos.get()
+    }
+
+    /// Returns number of whole days this value represents.
+    #[inline]
+    pub const fn as_days(&self) -> u64 {
+        self.nanos.get() / Self::DAY.nanos.get()
+    }
+
+    /// Returns number of whole weeks this value represents.
+    #[inline]
+    pub const fn as_weeks(&self) -> u64 {
+        self.nanos.get() / Self::WEEK.nanos.get()
+    }
+
+    /// Returns number of seconds as floating point value.
+    /// This function should be used for small-ish spans when high precision is not required.
+    #[inline]
+    pub fn as_secs_f32(&self) -> f32 {
+        self.nanos.get() as f32 / Self::SECOND.nanos.get() as f32
+    }
+
+    /// Returns number of seconds as high precision floating point value.
+    #[inline]
+    pub fn as_secs_f64(&self) -> f64 {
+        self.nanos.get() as f64 / Self::SECOND.nanos.get() as f64
     }
 
     #[inline(always)]

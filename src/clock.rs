@@ -2,6 +2,7 @@
 //! that handle time spans and time stamps
 //! where actual passing time spans are provided externally.
 
+use core::{num::NonZeroU64, time::Duration};
 use std::time::Instant;
 
 use crate::{span::TimeSpan, stamp::TimeStamp};
@@ -18,11 +19,13 @@ pub struct Clock {
 /// Contains time stamp corresponding to "now"
 /// and time span since previous step.
 pub struct ClockStep {
+    /// TimeStamp corresponding to "now".
     pub now: TimeStamp,
     pub step: TimeSpan,
 }
 
 impl Clock {
+    /// Returns new `Clock` instance.
     #[inline(always)]
     pub fn new() -> Self {
         Clock {
@@ -31,10 +34,13 @@ impl Clock {
         }
     }
 
+    /// Returns time stamp corresponding to "now".
     pub fn now(&self) -> TimeStamp {
         self.now
     }
 
+    /// Performs clock step and returns `ClockStep` result
+    /// with new time stamp and time span since previous step.
     pub fn step(&mut self) -> ClockStep {
         let from_start = self.start.elapsed();
         let nanos = from_start.as_nanos();
@@ -49,14 +55,22 @@ impl Clock {
             impressive();
         }
 
-        let nanos = nanos as u64 + 1;
-
-        let step = TimeSpan::new(nanos);
-        self.now += step;
+        // Safety:
+        // `nanos` is guaranteed to be less than `u64::MAX`
+        // Thus value is guaranteed to be in range 1..=u64::MAX.
+        let nanos = unsafe { NonZeroU64::new(nanos as u64 + 1).unwrap_unchecked() };
+        let now = TimeStamp::new(nanos);
+        let step = now - self.now;
+        self.now = now;
 
         ClockStep {
             now: self.now,
             step,
         }
+    }
+
+    /// Returns `Instant` corresponding to given `TimeStamp`.
+    pub fn stamp_instant(&self, stamp: TimeStamp) -> Instant {
+        self.start + Duration::from_nanos(stamp.elapsed_since(TimeStamp::start()).as_nanos() - 1)
     }
 }

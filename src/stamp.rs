@@ -67,6 +67,11 @@ impl TimeStamp {
         self.checked_elapsed_since(earlier)
             .expect("overflow when calculating time span elapsed since earlier")
     }
+
+    #[inline(always)]
+    pub fn elapsed_since_start(self) -> TimeSpan {
+        TimeSpan::new(self.nanos.get() - 1)
+    }
 }
 
 impl Add<TimeSpan> for TimeStamp {

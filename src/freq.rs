@@ -203,6 +203,55 @@ impl Iterator for FrequencyTickerIter {
     }
 }
 
+/// This trait adds methods to integers to convert values into `Frequency`s.
+pub trait FrequencyNumExt {
+    /// Convert integer value into `Frequency` with that amount of Herz.
+    fn hz(self) -> Frequency;
+
+    /// Convert integer value into `Frequency` with that amount of KiloHerz.
+    fn khz(self) -> Frequency;
+
+    /// Convert integer value into `Frequency` with that amount of MegaHerz.
+    fn mhz(self) -> Frequency;
+
+    /// Convert integer value into `Frequency` with that amount of GigaHerz.
+    fn ghz(self) -> Frequency;
+}
+
+macro_rules! impl_for_int {
+    ($($int:ty)*) => {
+        $(
+            impl_for_int!(@ $int);
+        )*
+    };
+
+    (@ $int:ty) => {
+        impl FrequencyNumExt for $int {
+            #[inline(always)]
+            fn hz(self) -> Frequency {
+                Frequency::from_hz(u64::from(self))
+            }
+
+            #[inline(always)]
+            fn khz(self) -> Frequency {
+                Frequency::from_khz(u64::from(self))
+            }
+
+            #[inline(always)]
+            fn mhz(self) -> Frequency {
+                Frequency::from_mhz(u64::from(self))
+            }
+
+            #[inline(always)]
+            fn ghz(self) -> Frequency {
+                Frequency::from_ghz(u64::from(self))
+            }
+        }
+    };
+}
+
+impl_for_int!(u8 u16 u32 u64);
+
 #[test]
 fn test_freq_ticker() {
     use crate::span::NonZeroTimeSpanNumExt;
