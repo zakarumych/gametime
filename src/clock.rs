@@ -34,12 +34,12 @@ impl Clock {
         }
     }
 
-    /// Returns time stamp corresponding to "now".
+    /// Returns time stamp corresponding to "now" of the last step.
     pub fn now(&self) -> TimeStamp {
         self.now
     }
 
-    /// Performs clock step and returns `ClockStep` result
+    /// Advances the clock and returns `ClockStep` result
     /// with new time stamp and time span since previous step.
     pub fn step(&mut self) -> ClockStep {
         let from_start = self.start.elapsed();

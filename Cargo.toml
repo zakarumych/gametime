@@ -1,7 +1,7 @@
 [package]
 name = "gametime"
-version = "0.0.0"
-edition = "2018"
+version = "0.1.0"
+edition = "2021"
 authors = ["Zakarum <zakarumych@ya.ru>"]
 license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/gametime"
@@ -9,7 +9,6 @@ homepage = "https://github.com/zakarumych/gametime"
 repository = "https://github.com/zakarumych/gametime"
 readme = "README.md"
 description = "Time handling library for games"
-
 
 [features]
 std = []

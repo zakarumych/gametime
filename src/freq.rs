@@ -2,6 +2,8 @@
 
 use core::{convert::TryInto, num::NonZeroU64};
 
+use serde::ser::SerializeTupleStruct;
+
 use crate::{
     span::{NonZeroTimeSpan, TimeSpan, TimeSpanNumExt},
     stamp::TimeStamp,
@@ -62,6 +64,82 @@ impl Frequency {
     #[inline(always)]
     pub fn periods_in(&self, span: TimeSpan) -> u64 {
         (self.count * span.as_nanos()) / self.period
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Frequency {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&format!("{}/{} Hz", self.count, self.period))
+        } else {
+            let mut serializer = serializer.serialize_tuple_struct("Frequency", 2)?;
+            serializer.serialize_field(&self.count)?;
+            serializer.serialize_field(&self.period)?;
+            serializer.end()
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Frequency {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+
+            match s.split_once("/") {
+                None => {
+                    let count = s
+                        .strip_suffix("Hz")
+                        .ok_or_else(|| serde::de::Error::custom("Wrong frequency format"))?;
+                    let count = count.trim();
+                    let count = count.parse().map_err(serde::de::Error::custom)?;
+
+                    let period = NonZeroU64::new(1).unwrap();
+                    return Ok(Frequency { count, period });
+                }
+
+                Some((count, s)) => {
+                    let count = count.trim();
+                    let count = count.parse().map_err(serde::de::Error::custom)?;
+                    let period = s
+                        .strip_suffix("Hz")
+                        .ok_or_else(|| serde::de::Error::custom("Wrong frequency format"))?;
+                    let period = period.trim();
+                    let period = period.parse().map_err(serde::de::Error::custom)?;
+
+                    return Ok(Frequency { count, period });
+                }
+            }
+        } else {
+            struct FrequencyVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for FrequencyVisitor {
+                type Value = Frequency;
+
+                fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                    formatter.write_str("a tuple of 2 elements")
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: serde::de::SeqAccess<'de>,
+                {
+                    let count = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::custom("Frequency is empty"))?;
+                    let period = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::custom("Frequency is empty"))?;
+                    Ok(Frequency { count, period })
+                }
+            }
+
+            deserializer.deserialize_tuple_struct("Frequency", 2, FrequencyVisitor)
+        }
     }
 }
 

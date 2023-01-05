@@ -169,7 +169,7 @@ pub enum TimeSpanParseErr {
     NonASCII,
     StringTooLarge { len: usize },
     IntParseError { source: core::num::ParseIntError },
-    UnexpectedDelimeter { delim: char, pos: usize },
+    UnexpectedDelimiter { delim: char, pos: usize },
     UnexpectedEndOfString,
     UnexpectedSuffix,
     HoursOutOfBound { hours: u64 },
@@ -189,8 +189,8 @@ impl fmt::Display for TimeSpanParseErr {
                 )
             }
             Self::IntParseError { .. } => f.write_str("Failed to parse integer"),
-            Self::UnexpectedDelimeter { delim, pos } => {
-                write!(f, "Unexpected delimeter '{}' at {}", delim, pos)
+            Self::UnexpectedDelimiter { delim, pos } => {
+                write!(f, "Unexpected delimiter '{}' at {}", delim, pos)
             }
             Self::UnexpectedEndOfString => f.write_str("Unexpected end of string"),
             Self::UnexpectedSuffix => {
@@ -305,7 +305,7 @@ impl FromStr for TimeSpan {
         }
 
         match seps.next() {
-            Some((dh, "d")) => match seps.next() {
+            Some((dh, "d" | "D" | "t" | "T")) => match seps.next() {
                 Some((hm, ":")) => match seps.next() {
                     None => Ranges {
                         days: Some(0..dh),
@@ -326,7 +326,7 @@ impl FromStr for TimeSpan {
                         },
                         Some((sf, ".")) => {
                             if let Some((pos, delim)) = seps.next() {
-                                return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                                return Err(TimeSpanParseErr::UnexpectedDelimiter {
                                     delim: delim.chars().next().unwrap(),
                                     pos,
                                 });
@@ -343,21 +343,21 @@ impl FromStr for TimeSpan {
                         }
 
                         Some((pos, delim)) => {
-                            return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                            return Err(TimeSpanParseErr::UnexpectedDelimiter {
                                 delim: delim.chars().next().unwrap(),
                                 pos,
                             });
                         }
                     },
                     Some((pos, delim)) => {
-                        return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                        return Err(TimeSpanParseErr::UnexpectedDelimiter {
                             delim: delim.chars().next().unwrap(),
                             pos,
                         });
                     }
                 },
                 Some((pos, delim)) => {
-                    return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                    return Err(TimeSpanParseErr::UnexpectedDelimiter {
                         delim: delim.chars().next().unwrap(),
                         pos,
                     });
@@ -370,7 +370,7 @@ impl FromStr for TimeSpan {
                 Some((ms, ":")) => match seps.next() {
                     Some((sf, ".")) => {
                         if let Some((pos, delim)) = seps.next() {
-                            return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                            return Err(TimeSpanParseErr::UnexpectedDelimiter {
                                 delim: delim.chars().next().unwrap(),
                                 pos,
                             });
@@ -394,7 +394,7 @@ impl FromStr for TimeSpan {
                         denom: 0,
                     },
                     Some((pos, delim)) => {
-                        return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                        return Err(TimeSpanParseErr::UnexpectedDelimiter {
                             delim: delim.chars().next().unwrap(),
                             pos,
                         });
@@ -402,7 +402,7 @@ impl FromStr for TimeSpan {
                 },
                 Some((sf, ".")) => {
                     if let Some((pos, delim)) = seps.next() {
-                        return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                        return Err(TimeSpanParseErr::UnexpectedDelimiter {
                             delim: delim.chars().next().unwrap(),
                             pos,
                         });
@@ -426,7 +426,7 @@ impl FromStr for TimeSpan {
                     denom: 0,
                 },
                 Some((pos, delim)) => {
-                    return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                    return Err(TimeSpanParseErr::UnexpectedDelimiter {
                         delim: delim.chars().next().unwrap(),
                         pos,
                     });
@@ -435,7 +435,7 @@ impl FromStr for TimeSpan {
 
             Some((sf, ".")) => {
                 if let Some((pos, delim)) = seps.next() {
-                    return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                    return Err(TimeSpanParseErr::UnexpectedDelimiter {
                         delim: delim.chars().next().unwrap(),
                         pos,
                     });
@@ -496,7 +496,7 @@ impl FromStr for TimeSpan {
             }
 
             Some((pos, delim)) => {
-                return Err(TimeSpanParseErr::UnexpectedDelimeter {
+                return Err(TimeSpanParseErr::UnexpectedDelimiter {
                     delim: delim.chars().next().unwrap(),
                     pos,
                 });
