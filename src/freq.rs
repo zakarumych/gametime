@@ -2,12 +2,13 @@
 
 use core::{convert::TryInto, num::NonZeroU64};
 
-use serde::ser::SerializeTupleStruct;
-
 use crate::{
     span::{NonZeroTimeSpan, TimeSpan, TimeSpanNumExt},
     stamp::TimeStamp,
 };
+
+#[cfg(feature = "serde")]
+use serde::ser::SerializeTupleStruct;
 
 /// Represents frequency.
 /// Able to accurately represent any rational frequency.
