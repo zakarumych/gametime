@@ -88,7 +88,7 @@ impl Frequency {
     }
 
     #[inline(always)]
-    fn period_excess(&self, span: Elements) -> Elements {
+    fn until_next(&self, span: Elements) -> Elements {
         Elements(self.period.get() - span.0 % self.period)
     }
 
@@ -214,11 +214,13 @@ pub struct FrequencyTicker {
 }
 
 impl FrequencyTicker {
+    /// Creates new ticker with given frequency and start timestamp.
     #[inline(always)]
     pub fn new(freq: Frequency, start: TimeStamp) -> Self {
         FrequencyTicker::with_delay(freq, start, 0)
     }
 
+    /// Creates new ticker with given frequency, start timestamp and delay in number of tick periods.
     #[inline(always)]
     pub fn with_delay(freq: Frequency, start: TimeStamp, periods: u64) -> Self {
         let periods = if freq.count == 0 {
@@ -233,13 +235,20 @@ impl FrequencyTicker {
         }
     }
 
+    /// Returns last timestamp of the ticker.
     #[inline(always)]
     pub fn now(&self) -> TimeStamp {
         self.now
     }
 
-    /// Returns iterator over ticks that happened since `self.now()` until `now`.
-    /// Sets `self.now()` to `now` even if iterator is not consumed.
+    /// Returns next timestamp when next tick will happen.
+    #[inline(always)]
+    pub fn next_tick(&self) -> Option<TimeStamp> {
+        Some(self.now + self.freq.span(self.until_next)?)
+    }
+
+    /// Advances ticker forward to `now` and returns iterator over ticks
+    /// since last advancement.
     #[inline(always)]
     pub fn ticks(&mut self, now: TimeStamp) -> FrequencyTickerIter {
         let span = self.freq.elements(now - self.now);
@@ -250,51 +259,55 @@ impl FrequencyTicker {
             freq: self.freq,
             until_next: self.until_next,
         };
-        self.until_next = iter.excess();
+
+        if span >= self.until_next {
+            self.until_next = self.freq.until_next(span - self.until_next);
+        } else {
+            self.until_next = self.until_next - span;
+        }
+
         self.now = now;
         iter
     }
 
-    /// Returns iterator over ticks that happened since `self.now()` until `self.now() + span`.
-    /// Sets `self.now()` to `self.now() + span` even if iterator is not consumed.
+    /// Advances ticker forward for `step` and returns iterator over ticks
+    /// since last advancement.
     #[inline(always)]
     pub fn step_ticks(&mut self, step: TimeSpan) -> FrequencyTickerIter {
         let now = self.now + step;
         self.ticks(now)
     }
 
-    /// Returns number of ticks that happened since `self.now()` until `now`.
-    /// Sets `self.now()` to `now`.
+    /// Advances ticker forward to `now` and returns number of ticks
+    /// since last advancement.
     #[inline(always)]
     pub fn tick_count(&mut self, now: TimeStamp) -> u64 {
         self.ticks(now).ticks()
     }
 
-    /// Calls closure with ticks that happened since `self.now()` until `now`.
-    /// Sets `self.now()` to `now`.
-    #[inline(always)]
-    pub fn tick_with(&mut self, now: TimeStamp, f: impl FnMut(TimeStamp)) {
-        self.ticks(now).for_each(f)
-    }
-
-    /// Returns next timestamp when next tick will happen.
-    #[inline(always)]
-    pub fn next_tick(&mut self) -> Option<TimeStamp> {
-        Some(self.now + self.freq.span(self.until_next)?)
-    }
-
+    /// Advances ticker forward for `step` and returns number of ticks
+    /// since last advancement.
     #[inline(always)]
     pub fn step_tick_count(&mut self, step: TimeSpan) -> u64 {
         self.step_ticks(step).ticks()
     }
 
-    /// Advances ticker and calls provided closure for each tick.
+    /// Advances ticker forward to `now` and calls provided closure with ticks
+    /// since last advancement.
+    #[inline(always)]
+    pub fn tick_with(&mut self, now: TimeStamp, f: impl FnMut(TimeStamp)) {
+        self.ticks(now).for_each(f)
+    }
+
+    /// Advances ticker forward for `step` and calls provided closure with ticks
+    /// since last advancement.
     #[inline(always)]
     pub fn step_tick_with(&mut self, step: TimeSpan, f: impl FnMut(TimeStamp)) {
         self.step_ticks(step).for_each(f)
     }
 }
 
+/// Iterator over ticks from `FrequencyTicker`.
 pub struct FrequencyTickerIter {
     now: TimeStamp,
     span: Elements,
@@ -312,17 +325,6 @@ impl FrequencyTickerIter {
 
         let span = self.span - self.until_next;
         1 + self.freq.periods_in_elements(span)
-    }
-
-    /// Returns elements excess that will left after iteration.
-    #[inline]
-    fn excess(&self) -> Elements {
-        if self.span >= self.until_next {
-            let span = self.span - self.until_next;
-            self.freq.period_excess(span)
-        } else {
-            self.until_next - self.span
-        }
     }
 }
 
