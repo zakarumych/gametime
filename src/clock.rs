@@ -58,8 +58,7 @@ impl Clock {
         // Safety:
         // `nanos` is guaranteed to be less than `u64::MAX`
         // Thus value is guaranteed to be in range 1..=u64::MAX.
-        let nanos = unsafe { NonZeroU64::new(nanos as u64 + 1).unwrap_unchecked() };
-        let now = TimeStamp::new(nanos);
+        let now = TimeStamp::start() + TimeSpan::new(nanos as u64);
         let step = now - self.now;
         self.now = now;
 
@@ -71,6 +70,6 @@ impl Clock {
 
     /// Returns `Instant` corresponding to given `TimeStamp`.
     pub fn stamp_instant(&self, stamp: TimeStamp) -> Instant {
-        self.start + Duration::from_nanos(stamp.elapsed_since(TimeStamp::start()).as_nanos() - 1)
+        self.start + Duration::from_nanos(stamp.elapsed_since(TimeStamp::start()).as_nanos())
     }
 }
