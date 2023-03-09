@@ -305,6 +305,22 @@ impl FrequencyTicker {
     pub fn step_tick_with(&mut self, step: TimeSpan, f: impl FnMut(TimeStamp)) {
         self.step_ticks(step).for_each(f)
     }
+
+    /// Returns current frequency of the ticker.
+    #[inline(always)]
+    pub fn frequency(&self) -> Frequency {
+        self.freq
+    }
+
+    /// Sets new frequency of the ticker.
+    #[inline(always)]
+    pub fn set_frequency(&mut self, freq: Frequency) {
+        self.freq = freq;
+        let period = freq.period();
+        if self.until_next > period {
+            self.until_next = period;
+        }
+    }
 }
 
 /// Iterator over ticks from `FrequencyTicker`.
