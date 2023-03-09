@@ -2,7 +2,7 @@
 //! that handle time spans and time stamps
 //! where actual passing time spans are provided externally.
 
-use core::{num::NonZeroU64, time::Duration};
+use core::time::Duration;
 use std::time::Instant;
 
 use crate::{span::TimeSpan, stamp::TimeStamp};
@@ -22,6 +22,13 @@ pub struct ClockStep {
     /// TimeStamp corresponding to "now".
     pub now: TimeStamp,
     pub step: TimeSpan,
+}
+
+impl Default for Clock {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Clock {

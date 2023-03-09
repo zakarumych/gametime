@@ -1267,7 +1267,7 @@ impl Mul<u64> for TimeSpan {
 
     #[inline(always)]
     fn mul(self, rhs: u64) -> Self {
-        self.checked_mul(rhs.into())
+        self.checked_mul(rhs)
             .expect("overflow when multiplying span by scalar")
     }
 }
@@ -1293,7 +1293,7 @@ impl Div<u64> for TimeSpan {
 
     #[inline(always)]
     fn div(self, rhs: u64) -> Self {
-        self.checked_div(rhs.into())
+        self.checked_div(rhs)
             .expect("divide by zero error when dividing span by scalar")
     }
 }
@@ -1310,7 +1310,7 @@ impl Rem<u64> for TimeSpan {
 
     #[inline(always)]
     fn rem(self, rhs: u64) -> Self {
-        self.checked_rem(rhs.into())
+        self.checked_rem(rhs)
             .expect("divide by zero error when dividing span by scalar")
     }
 }
@@ -1327,7 +1327,7 @@ impl Mul<u64> for NonZeroTimeSpan {
 
     #[inline(always)]
     fn mul(self, rhs: u64) -> TimeSpan {
-        self.checked_mul(rhs.into())
+        self.checked_mul(rhs)
             .expect("overflow when multiplying span by scalar")
     }
 }
@@ -1346,7 +1346,7 @@ impl Div<u64> for NonZeroTimeSpan {
 
     #[inline(always)]
     fn div(self, rhs: u64) -> TimeSpan {
-        self.checked_div(rhs.into())
+        self.checked_div(rhs)
             .expect("divide by zero error when dividing span by scalar")
     }
 }
@@ -1356,7 +1356,7 @@ impl Rem<u64> for NonZeroTimeSpan {
 
     #[inline(always)]
     fn rem(self, rhs: u64) -> TimeSpan {
-        self.checked_rem(rhs.into())
+        self.checked_rem(rhs)
             .expect("divide by zero error when dividing span by scalar")
     }
 }
@@ -1366,7 +1366,7 @@ impl Mul<NonZeroU64> for TimeSpan {
 
     #[inline(always)]
     fn mul(self, rhs: NonZeroU64) -> Self {
-        self.checked_mul(rhs.get().into())
+        self.checked_mul(rhs.get())
             .expect("overflow when multiplying span by scalar")
     }
 }
@@ -1392,7 +1392,7 @@ impl Div<NonZeroU64> for TimeSpan {
 
     #[inline(always)]
     fn div(self, rhs: NonZeroU64) -> Self {
-        self.div(rhs.into())
+        self.div(rhs)
     }
 }
 
@@ -1408,7 +1408,7 @@ impl Rem<NonZeroU64> for TimeSpan {
 
     #[inline(always)]
     fn rem(self, rhs: NonZeroU64) -> Self {
-        self.rem(rhs.into())
+        self.rem(rhs)
     }
 }
 
@@ -1424,7 +1424,7 @@ impl Mul<NonZeroU64> for NonZeroTimeSpan {
 
     #[inline(always)]
     fn mul(self, rhs: NonZeroU64) -> NonZeroTimeSpan {
-        self.checked_mul_non_zero(rhs.into())
+        self.checked_mul_non_zero(rhs)
             .expect("overflow when multiplying span by scalar")
     }
 }
@@ -1443,7 +1443,7 @@ impl Div<NonZeroU64> for NonZeroTimeSpan {
 
     #[inline(always)]
     fn div(self, rhs: NonZeroU64) -> TimeSpan {
-        self.div(rhs.into())
+        self.div(rhs)
     }
 }
 
@@ -1452,7 +1452,7 @@ impl Rem<NonZeroU64> for NonZeroTimeSpan {
 
     #[inline(always)]
     fn rem(self, rhs: NonZeroU64) -> TimeSpan {
-        self.rem(rhs.into())
+        self.rem(rhs)
     }
 }
 
