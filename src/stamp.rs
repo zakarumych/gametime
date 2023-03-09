@@ -9,7 +9,7 @@ use core::{
 use crate::span::TimeSpan;
 
 /// A fixed point in time relative to the reference point in time.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TimeStamp {
     /// Number of nanoseconds elapsed from reference point in time.
