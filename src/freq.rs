@@ -102,8 +102,8 @@ impl Frequency {
     }
 
     #[inline(always)]
-    pub fn ticker(&self, start: TimeStamp) -> FrequencyTicker {
-        FrequencyTicker::new(*self, start)
+    pub fn ticker(&self) -> FrequencyTicker {
+        FrequencyTicker::new(*self)
     }
 }
 
@@ -210,19 +210,18 @@ pub struct FrequencyTicker {
 
     /// Number of elements until next tick.
     until_next: Elements,
-    now: TimeStamp,
 }
 
 impl FrequencyTicker {
     /// Creates new ticker with given frequency and start timestamp.
     #[inline(always)]
-    pub fn new(freq: Frequency, start: TimeStamp) -> Self {
-        FrequencyTicker::with_delay(freq, start, 0)
+    pub fn new(freq: Frequency) -> Self {
+        FrequencyTicker::with_delay(freq, 0)
     }
 
-    /// Creates new ticker with given frequency, start timestamp and delay in number of tick periods.
+    /// Creates new ticker with given frequency and delay in number of tick periods.
     #[inline(always)]
-    pub fn with_delay(freq: Frequency, start: TimeStamp, periods: u64) -> Self {
+    pub fn with_delay(freq: Frequency, periods: u64) -> Self {
         let periods = if freq.count == 0 {
             periods.max(1)
         } else {
@@ -231,30 +230,28 @@ impl FrequencyTicker {
         FrequencyTicker {
             freq,
             until_next: freq.periods(periods),
-            now: start,
         }
-    }
-
-    /// Returns last timestamp of the ticker.
-    #[inline(always)]
-    pub fn now(&self) -> TimeStamp {
-        self.now
     }
 
     /// Returns next timestamp when next tick will happen.
     #[inline(always)]
-    pub fn next_tick(&self) -> Option<TimeStamp> {
-        Some(self.now + self.freq.span(self.until_next)?)
+    pub fn next_tick(&self) -> Option<TimeSpan> {
+        self.freq.span(self.until_next)
     }
 
-    /// Advances ticker forward to `now` and returns iterator over ticks
+    /// Returns next timestamp when next tick will happen.
+    #[inline(always)]
+    pub fn next_tick_stamp(&self, now: TimeStamp) -> Option<TimeStamp> {
+        Some(now + self.freq.span(self.until_next)?)
+    }
+
+    /// Advances ticker forward for `span` and returns iterator over ticks
     /// since last advancement.
     #[inline(always)]
-    pub fn ticks(&mut self, now: TimeStamp) -> FrequencyTickerIter {
-        let span = self.freq.elements(now - self.now);
+    pub fn ticks(&mut self, step: TimeSpan) -> FrequencyTickerIter {
+        let span = self.freq.elements(step);
 
         let iter = FrequencyTickerIter {
-            now: self.now,
             span,
             freq: self.freq,
             until_next: self.until_next,
@@ -266,44 +263,21 @@ impl FrequencyTicker {
             self.until_next = self.until_next - span;
         }
 
-        self.now = now;
         iter
-    }
-
-    /// Advances ticker forward for `step` and returns iterator over ticks
-    /// since last advancement.
-    #[inline(always)]
-    pub fn step_ticks(&mut self, step: TimeSpan) -> FrequencyTickerIter {
-        let now = self.now + step;
-        self.ticks(now)
     }
 
     /// Advances ticker forward to `now` and returns number of ticks
     /// since last advancement.
     #[inline(always)]
-    pub fn tick_count(&mut self, now: TimeStamp) -> u64 {
-        self.ticks(now).ticks()
-    }
-
-    /// Advances ticker forward for `step` and returns number of ticks
-    /// since last advancement.
-    #[inline(always)]
-    pub fn step_tick_count(&mut self, step: TimeSpan) -> u64 {
-        self.step_ticks(step).ticks()
-    }
-
-    /// Advances ticker forward to `now` and calls provided closure with ticks
-    /// since last advancement.
-    #[inline(always)]
-    pub fn tick_with(&mut self, now: TimeStamp, f: impl FnMut(TimeStamp)) {
-        self.ticks(now).for_each(f)
+    pub fn tick_count(&mut self, step: TimeSpan) -> u64 {
+        self.ticks(step).ticks()
     }
 
     /// Advances ticker forward for `step` and calls provided closure with ticks
     /// since last advancement.
     #[inline(always)]
-    pub fn step_tick_with(&mut self, step: TimeSpan, f: impl FnMut(TimeStamp)) {
-        self.step_ticks(step).for_each(f)
+    pub fn with_ticks(&mut self, step: TimeSpan, f: impl FnMut(TimeSpan)) {
+        self.ticks(step).for_each(f)
     }
 
     /// Returns current frequency of the ticker.
@@ -325,7 +299,6 @@ impl FrequencyTicker {
 
 /// Iterator over ticks from `FrequencyTicker`.
 pub struct FrequencyTickerIter {
-    now: TimeStamp,
     span: Elements,
     freq: Frequency,
     until_next: Elements,
@@ -345,10 +318,10 @@ impl FrequencyTickerIter {
 }
 
 impl Iterator for FrequencyTickerIter {
-    type Item = TimeStamp;
+    type Item = TimeSpan;
 
     #[inline]
-    fn next(&mut self) -> Option<TimeStamp> {
+    fn next(&mut self) -> Option<TimeSpan> {
         if self.span < self.until_next {
             return None;
         }
@@ -357,7 +330,7 @@ impl Iterator for FrequencyTickerIter {
         // `self.until_next` is zero too.
         // Otherwise `self.span` would be less than `self.until_next`
         // because it is produced by mutliplying with `self.count`
-        let next = self.now + self.freq.span(self.until_next).unwrap_or(TimeSpan::ZERO);
+        let next = self.freq.span(self.until_next).unwrap_or(TimeSpan::ZERO);
 
         self.span = self.span - self.until_next;
         self.until_next = self.freq.period();
@@ -418,19 +391,17 @@ impl_for_int!(u8 u16 u32 u64);
 fn test_freq_ticker() {
     use crate::span::NonZeroTimeSpanNumExt;
 
-    let mut ticker = FrequencyTicker::new(
-        Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
-        TimeStamp::start(),
-    );
+    let mut ticker = FrequencyTicker::new(Frequency::new(
+        3,
+        NonZeroU64::new(10).unwrap().nanoseconds(),
+    ));
 
-    let mut now = TimeStamp::start();
-
-    let ticks = [1, 0, 0, 0, 1, 0, 0, 1, 0, 0];
+    ticker.tick_count(TimeSpan::NANOSECOND * 10);
+    let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 
     for _ in 0..10 {
         for tick in ticks {
-            assert_eq!(ticker.tick_count(now), tick);
-            now += TimeSpan::NANOSECOND;
+            assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND), tick);
         }
     }
 }
@@ -443,23 +414,20 @@ fn test_freq_ticker_delay() {
 
     let mut ticker = FrequencyTicker::with_delay(
         Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
-        TimeStamp::start(),
         DELAY,
     );
 
-    let mut now = TimeStamp::start();
-
-    let ticks = [1, 0, 0, 0, 1, 0, 0, 1, 0, 0];
     let mut delay = DELAY;
+    while delay > 0 {
+        ticker.tick_count(TimeSpan::NANOSECOND * 10);
+        delay -= 3;
+    }
 
-    for _ in 0..100 {
-        for mut tick in ticks {
-            if delay >= tick {
-                delay -= tick;
-                tick = 0;
-            }
-            assert_eq!(ticker.tick_count(now), tick);
-            now += TimeSpan::NANOSECOND;
+    let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
+
+    for _ in 0..10 {
+        for tick in ticks {
+            assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND), tick);
         }
     }
 }
@@ -472,15 +440,19 @@ fn test_freq_ticker_next_tick() {
 
     let mut ticker = FrequencyTicker::with_delay(
         Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
-        TimeStamp::start(),
         DELAY,
     );
 
-    let mut now = TimeStamp::start();
-
-    let ticks = [1, 0, 0, 0, 1, 0, 0, 1, 0, 0];
     let mut delay = DELAY;
-    let mut next_tick = ticker.next_tick();
+    while delay > 0 {
+        ticker.tick_count(TimeSpan::NANOSECOND * 10);
+        delay -= 3;
+    }
+
+    let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
+
+    let mut now = TimeStamp::start();
+    let mut next_tick = ticker.next_tick_stamp(now).unwrap();
 
     for _ in 0..100 {
         for mut tick in ticks {
@@ -488,16 +460,16 @@ fn test_freq_ticker_next_tick() {
                 delay -= tick;
                 tick = 0;
             }
-            if tick > 0 {
-                assert_eq!(next_tick.take(), Some(now));
-            } else {
-                if let Some(next_tick) = next_tick {
-                    assert_eq!(Some(next_tick), ticker.next_tick());
-                }
-                next_tick = ticker.next_tick();
-            }
-            assert_eq!(ticker.tick_count(now), tick);
+
             now += TimeSpan::NANOSECOND;
+            assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND), tick);
+
+            if tick > 0 {
+                assert_eq!(next_tick, now);
+                next_tick = ticker.next_tick_stamp(now).unwrap();
+            } else {
+                assert_eq!(next_tick, ticker.next_tick_stamp(now).unwrap());
+            }
         }
     }
 }

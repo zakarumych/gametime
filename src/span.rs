@@ -8,7 +8,7 @@
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display},
-    num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, TryFromIntError},
+    num::{NonZeroU64, TryFromIntError},
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Range, Rem, RemAssign, Sub, SubAssign},
     str::FromStr,
     time::Duration,
@@ -797,6 +797,25 @@ impl TimeSpan {
         let nanos = self.nanos % span.nanos.get();
         TimeSpan { nanos }
     }
+
+    #[inline(always)]
+    pub const fn hms(hours: u64, minutes: u64, seconds: u64) -> TimeSpan {
+        TimeSpan {
+            nanos: hours * Self::HOUR.nanos
+                + minutes * Self::MINUTE.nanos
+                + seconds * Self::SECOND.nanos,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn dhms(days: u64, hours: u64, minutes: u64, seconds: u64) -> TimeSpan {
+        TimeSpan {
+            nanos: days * Self::DAY.nanos
+                + hours * Self::HOUR.nanos
+                + minutes * Self::MINUTE.nanos
+                + seconds * Self::SECOND.nanos,
+        }
+    }
 }
 
 /// An interval in between different time stamps.
@@ -879,6 +898,7 @@ impl NonZeroTimeSpan {
 
     /// One Gregorian year.
     /// Average year length in Gregorian calendar.
+    /// 3 days per 400 years shorter than Julian year.
     /// Defined as 365.2425 days.
     pub const GREGORIAN_YEAR: Self = NonZeroTimeSpan {
         nanos: unsafe { NonZeroU64::new_unchecked(31_556_952_000_000) },
@@ -1545,7 +1565,7 @@ macro_rules! impl_for_int {
     };
 }
 
-impl_for_int!(u8 u16 u32 u64);
+impl_for_int!(u64);
 
 macro_rules! impl_for_nonzero_int {
 ($($int:ty)*) => {
@@ -1589,7 +1609,7 @@ macro_rules! impl_for_nonzero_int {
     };
 }
 
-impl_for_nonzero_int!(NonZeroU8 NonZeroU16 NonZeroU32 NonZeroU64);
+impl_for_nonzero_int!(NonZeroU64);
 
 #[test]
 fn test_span_print() {

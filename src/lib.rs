@@ -59,12 +59,17 @@ where
     a
 }
 
+/// Converts human-readable expression into `TimeSpan`.
 #[macro_export]
 macro_rules! timespan {
-    ($d:literal d) => {{
-        let days = $d * $crate::__as($crate::TimeSpan::DAY.as_nanos() as _, &$d);
-        $crate::TimeSpan::new(days as u64)
+    ($y:literal y) => { $crate::timespan!($y years) };
+
+    ($y:literal years) => {{
+        let years = $y * $crate::__as($crate::TimeSpan::YEAR.as_nanos() as _, &$d);
+        $crate::TimeSpan::new(years as u64)
     }};
+
+    ($d:literal d) => { $crate::timespan!($d days) };
 
     ($d:literal days) => {{
         let days = $d * $crate::__as($crate::TimeSpan::DAY.as_nanos() as _, &$d);
@@ -79,18 +84,12 @@ macro_rules! timespan {
         $crate::TimeSpan::new(hours + minutes + seconds as u64)
     }};
 
-    ($h:literal h) => {{
-        let hours = $h * $crate::__as($crate::TimeSpan::HOUR.as_nanos() as _, &$h);
-        $crate::TimeSpan::new(hours as u64)
-    }};
+    ($h:literal h) => { $crate::timespan!($h hours) };
 
-    ($h:literal hrs) => {{
-        let hours = $h * $crate::__as($crate::TimeSpan::HOUR.as_nanos() as _, &$h);
-        $crate::TimeSpan::new(hours as u64)
-    }};
+    ($h:literal hrs) => { $crate::timespan!($h hours) };
 
     ($h:literal hours) => {{
-        let hours = $h * $crate::__as($crate::TimeSpan::HOUR.as_nanos() as _, &$s);
+        let hours = $h * $crate::__as($crate::TimeSpan::HOUR.as_nanos() as _, &$h);
         $crate::TimeSpan::new(hours as u64)
     }};
 
@@ -100,40 +99,45 @@ macro_rules! timespan {
         $crate::TimeSpan::new(minutes + seconds as u64)
     }};
 
-    ($m:literal m) => {{
-        let minutes = $m * $crate::__as($crate::TimeSpan::MINUTE.as_nanos() as _, &$m);
-        $crate::TimeSpan::new(minutes as u64)
-    }};
+    ($m:literal m) => { $crate::timespan!($m minutes) };
 
-    ($m:literal mins) => {{
-        let minutes = $m * $crate::__as($crate::TimeSpan::MINUTE.as_nanos() as _, &$m);
-        $crate::TimeSpan::new(minutes as u64)
-    }};
+    ($m:literal mins) => { $crate::timespan!($m minutes) };
 
     ($m:literal minutes) => {{
         let minutes = $m * $crate::__as($crate::TimeSpan::MINUTE.as_nanos() as _, &$m);
         $crate::TimeSpan::new(minutes as u64)
     }};
 
-    ($s:literal s) => {{
-        let seconds = $s * $crate::__as($crate::TimeSpan::SECOND.as_nanos() as _, &$s);
-        $crate::TimeSpan::new(seconds as u64)
-    }};
+    ($s:literal s) => { $crate::timespan!($s seconds) };
 
-    ($s:literal secs) => {{
-        let seconds = $s * $crate::__as($crate::TimeSpan::SECOND.as_nanos() as _, &$s);
-        $crate::TimeSpan::new(seconds as u64)
-    }};
+    ($s:literal secs) => { $crate::timespan!($s seconds) };
 
     ($s:literal seconds) => {{
         let seconds = $s * $crate::__as($crate::TimeSpan::SECOND.as_nanos() as _, &$s);
         $crate::TimeSpan::new(seconds as u64)
     }};
+
+    ($(1)?year) => { $crate::TimeSpan::YEAR };
+    ($(1)?weak) => { $crate::TimeSpan::WEEK };
+    ($(1)?day) => { $crate::TimeSpan::DAY };
+    ($(1)?hour) => { $crate::TimeSpan::HOUR };
+    ($(1)?hr) => { $crate::TimeSpan::HOUR };
+    ($(1)?minute) => { $crate::TimeSpan::MINUTE };
+    ($(1)?min) => { $crate::TimeSpan::MINUTE };
+    ($(1)?second) => { $crate::TimeSpan::SECOND };
+    ($(1)?sec) => { $crate::TimeSpan::SECOND };
+}
+
+/// Converts human-readable expression into `TimeSpan`.
+/// Shortcut for [`timespan!`].
+#[macro_export]
+macro_rules! ts {
+    ($($tt:tt)*) => { $crate::timespan!($($tt)*) };
 }
 
 #[cfg(test)]
 const TEST_SPANS: [TimeSpan; 6] = [
-    timespan!(1 d),     // 1 day
+    timespan!(1 day),   // 1 day
     timespan!(2:3:1),   // 2 hours, 3 minutes, 1 second
     timespan!(3 hrs),   // 3 hours
     timespan!(2:3),     // 2 minutes, 3 seconds

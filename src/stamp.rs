@@ -4,6 +4,7 @@
 use core::{
     num::NonZeroU64,
     ops::{Add, AddAssign, Sub},
+    time::Duration,
 };
 
 use crate::span::TimeSpan;
@@ -27,8 +28,23 @@ impl TimeStamp {
 
     /// Constructs time stamp from number of nanoseconds elapsed since reference point in time.
     #[inline(always)]
-    pub const fn new(nanos: NonZeroU64) -> Self {
-        TimeStamp { nanos }
+    pub fn from_elapsed(nanos: u64) -> Option<Self> {
+        let nanos = nanos.checked_add(1)?;
+        Some(TimeStamp {
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
+        })
+    }
+
+    /// Constructs time stamp from number of nanoseconds elapsed since reference point in time.
+    ///
+    /// # Safety
+    ///
+    /// `nanos` must not be 0.
+    #[inline(always)]
+    pub unsafe fn new_unchecked(nanos: u64) -> Self {
+        TimeStamp {
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
+        }
     }
 
     /// Returns time stamp corresponding to "now".
@@ -37,18 +53,35 @@ impl TimeStamp {
     pub fn now() -> Self {
         let (now, reference) = global_reference::now_and_reference();
         let duration = now.duration_since(reference);
-        let nanos = duration.as_nanos();
 
-        #[cold]
-        #[inline(never)]
-        fn impressive() -> ! {
-            panic!("Process runs for more than 500 years. Impressive. Upgrade to version with u128 value type")
+        match TimeStamp::from_duration(duration) {
+            Some(stamp) => stamp,
+            None => impressive(),
         }
+    }
 
+    /// Constructs time stamp from duration.
+    #[inline(always)]
+    pub fn from_duration(duration: Duration) -> Option<Self> {
+        let nanos = duration.as_nanos();
+        if nanos > (u64::MAX - 1) as u128 {
+            return None;
+        }
+        Some(TimeStamp {
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos as u64 + 1) },
+        })
+    }
+
+    /// Constructs time stamp from duration observed by the process.
+    ///
+    /// It guarantees that it fits into `TimeStamp` as it takes more that 500 years
+    /// to overflow `TimeStamp` with `u64` nanoseconds.
+    #[inline(always)]
+    pub fn from_observed_duration(duration: Duration) -> Self {
+        let nanos = duration.as_nanos();
         if nanos > (u64::MAX - 1) as u128 {
             impressive();
         }
-
         TimeStamp {
             nanos: unsafe { NonZeroU64::new_unchecked(nanos as u64 + 1) },
         }
@@ -72,6 +105,21 @@ impl TimeStamp {
     pub fn elapsed_since_start(self) -> TimeSpan {
         TimeSpan::new(self.nanos.get() - 1)
     }
+
+    #[inline(always)]
+    pub fn nanos_since_start(self) -> u64 {
+        self.nanos.get() - 1
+    }
+
+    #[inline(always)]
+    pub fn add_span(self, span: TimeSpan) -> Option<TimeStamp> {
+        let nanos = self.nanos.get().checked_add(span.as_nanos())?;
+
+        Some(TimeStamp {
+            // Safety: a > 0, b >= 0 hence a + b > 0
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
+        })
+    }
 }
 
 impl Add<TimeSpan> for TimeStamp {
@@ -79,12 +127,15 @@ impl Add<TimeSpan> for TimeStamp {
 
     #[inline(always)]
     fn add(self, rhs: TimeSpan) -> Self {
+        let nanos = self
+            .nanos
+            .get()
+            .checked_add(rhs.as_nanos())
+            .expect("overflow when adding time span to time stamp");
+
         TimeStamp {
-            nanos: unsafe {
-                // # Safety
-                // a > 0, b >= 0 hence a + b > 0
-                NonZeroU64::new_unchecked(self.nanos.get() + rhs.as_nanos())
-            },
+            // Safety: a > 0, b >= 0 hence a + b > 0
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
         }
     }
 }
@@ -103,6 +154,14 @@ impl Sub<TimeStamp> for TimeStamp {
     fn sub(self, rhs: TimeStamp) -> TimeSpan {
         self.elapsed_since(rhs)
     }
+}
+
+#[cold]
+#[inline(always)]
+fn impressive() -> ! {
+    panic!(
+        "Process runs for more than 500 years. Impressive. Upgrade to version with u128 value type"
+    )
 }
 
 #[cfg(feature = "global_reference")]
