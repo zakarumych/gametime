@@ -18,11 +18,21 @@ pub struct TimeStamp {
 }
 
 impl TimeStamp {
-    /// Constructs time stamp from number of nanoseconds elapsed since reference point in time.
+    /// Constructs the smallest possible time stamp.
     #[inline(always)]
     pub const fn start() -> Self {
         TimeStamp {
             nanos: unsafe { NonZeroU64::new_unchecked(1) },
+        }
+    }
+
+    /// Constructs the largest possible time stamp.
+    ///
+    /// It is practically impossible to reach it without using artificially large time spans.
+    #[inline(always)]
+    pub const fn never() -> Self {
+        TimeStamp {
+            nanos: unsafe { NonZeroU64::new_unchecked(u64::MAX) },
         }
     }
 
@@ -60,7 +70,7 @@ impl TimeStamp {
         }
     }
 
-    /// Constructs time stamp from duration.
+    /// Constructs time stamp from duration since reference point in time.
     #[inline(always)]
     pub fn from_duration(duration: Duration) -> Option<Self> {
         let nanos = duration.as_nanos();
@@ -74,8 +84,12 @@ impl TimeStamp {
 
     /// Constructs time stamp from duration observed by the process.
     ///
-    /// It guarantees that it fits into `TimeStamp` as it takes more that 500 years
-    /// to overflow `TimeStamp` with `u64` nanoseconds.
+    /// Given that duration is measured by the process, it is impossible to overflow
+    /// as it would mean that process runs for more than 500 years.
+    ///
+    /// # Panics
+    ///
+    /// Panics if overflow occurs.
     #[inline(always)]
     pub fn from_observed_duration(duration: Duration) -> Self {
         let nanos = duration.as_nanos();
