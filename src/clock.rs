@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{span::TimeSpan, stamp::TimeStamp};
+use crate::{span::TimeSpan, stamp::TimeStamp, Frequency, FrequencyTicker};
 
 /// Result of `Clock` step.
 /// Contains time stamp corresponding to "now"
@@ -64,5 +64,9 @@ impl Clock {
     /// Returns `Instant` corresponding to given `TimeStamp`.
     pub fn stamp_instant(&self, stamp: TimeStamp) -> Instant {
         self.start + Duration::from_nanos(stamp.nanos_since_start())
+    }
+
+    pub fn ticker(&self, freq: Frequency) -> FrequencyTicker {
+        FrequencyTicker::new(freq, self.now)
     }
 }
