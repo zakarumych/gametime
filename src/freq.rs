@@ -406,37 +406,37 @@ pub trait FrequencyNumExt {
     fn ghz(self) -> Frequency;
 }
 
-macro_rules! impl_for_int {
-    ($($int:ty)*) => {
-        $(
-            impl_for_int!(@ $int);
-        )*
-    };
+// macro_rules! impl_for_int {
+//     ($($int:ty)*) => {
+//         $(
+//             impl_for_int!(@ $int);
+//         )*
+//     };
 
-    (@ $int:ty) => {
-        impl FrequencyNumExt for $int {
-            #[inline(always)]
-            fn hz(self) -> Frequency {
-                Frequency::from_hz(u64::from(self))
-            }
+//     (@ $int:ty) => {
+//         impl FrequencyNumExt for $int {
+//             #[inline(always)]
+//             fn hz(self) -> Frequency {
+//                 Frequency::from_hz(u64::from(self))
+//             }
 
-            #[inline(always)]
-            fn khz(self) -> Frequency {
-                Frequency::from_khz(u64::from(self))
-            }
+//             #[inline(always)]
+//             fn khz(self) -> Frequency {
+//                 Frequency::from_khz(u64::from(self))
+//             }
 
-            #[inline(always)]
-            fn mhz(self) -> Frequency {
-                Frequency::from_mhz(u64::from(self))
-            }
+//             #[inline(always)]
+//             fn mhz(self) -> Frequency {
+//                 Frequency::from_mhz(u64::from(self))
+//             }
 
-            #[inline(always)]
-            fn ghz(self) -> Frequency {
-                Frequency::from_ghz(u64::from(self))
-            }
-        }
-    };
-}
+//             #[inline(always)]
+//             fn ghz(self) -> Frequency {
+//                 Frequency::from_ghz(u64::from(self))
+//             }
+//         }
+//     };
+// }
 
 // impl_for_int!(u8 u16 u32 u64);
 
