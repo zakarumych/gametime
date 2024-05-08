@@ -27,6 +27,9 @@
 #[cfg(feature = "std")]
 mod clock;
 
+#[cfg(feature = "std")]
+mod rate;
+
 mod freq;
 mod span;
 mod stamp;
@@ -38,7 +41,10 @@ pub use crate::{
 };
 
 #[cfg(feature = "std")]
-pub use crate::clock::{Clock, ClockStep};
+pub use crate::{
+    clock::{Clock, ClockStep},
+    rate::ClockRate,
+};
 
 #[cfg(feature = "global_reference")]
 pub use crate::stamp::global_reference;
@@ -156,4 +162,13 @@ fn test_timespan_macro() {
     assert_eq!(TEST_SPANS[3], TimeSpan::MINUTE * 2 + TimeSpan::SECOND * 3);
     assert_eq!(TEST_SPANS[4], TimeSpan::MINUTE * 3);
     assert_eq!(TEST_SPANS[5], TimeSpan::SECOND * 42);
+}
+
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let temp = b;
+        b = a % b;
+        a = temp;
+    }
+    a
 }

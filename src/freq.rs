@@ -3,6 +3,7 @@
 use core::{convert::TryInto, num::NonZeroU64, ops};
 
 use crate::{
+    gcd,
     span::{NonZeroTimeSpan, TimeSpan},
     stamp::TimeStamp,
 };
@@ -14,8 +15,8 @@ use serde::ser::SerializeTupleStruct;
 /// Able to accurately represent any rational frequency.
 #[derive(Clone, Copy)]
 pub struct Frequency {
-    count: u64,
-    period: NonZeroU64,
+    pub count: u64,
+    pub period: NonZeroU64,
 }
 
 impl Frequency {
@@ -28,17 +29,13 @@ impl Frequency {
     }
 
     pub fn new(count: u64, period: NonZeroTimeSpan) -> Self {
-        let period = period.as_nanos();
-        let shift = count.trailing_zeros().min(period.trailing_zeros());
+        let gcd = gcd(count, period.as_nanos().get());
+        let count = count / gcd;
+        let period_nanos = period.as_nanos().get() / gcd;
 
         Frequency {
-            count: count >> shift,
-            period: unsafe {
-                // # Safety
-                // Shifts only trailing zeros.
-                // denominator is not 0.
-                NonZeroU64::new(period.get() >> shift).unwrap_unchecked()
-            },
+            count,
+            period: NonZeroU64::new(period_nanos).unwrap(),
         }
     }
 
