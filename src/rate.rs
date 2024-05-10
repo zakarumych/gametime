@@ -151,12 +151,35 @@ impl ClockRate {
 }
 
 fn rate2ratio(rate: f32) -> (u64, NonZeroU64) {
-    let denom = 2 * 3 * 5 * 7 * 11 * 13 * 17 * 19 * 23 * 29 * 31;
-    let nom = (rate.max(0.0) * denom as f32).floor() as u64;
+    let (n, d) = ftor(rate);
+    (n, NonZeroU64::new(d).unwrap())
+}
 
-    let gcd = gcd(nom, denom);
+fn ftor(value: f32) -> (u64, u64) {
+    const EPSILON: f32 = 1e-6;
+    const MAX_ITER: usize = 50;
 
-    let nom = nom / gcd;
-    let denom = denom / gcd;
-    (nom, NonZeroU64::new(denom).unwrap())
+    let v = value.max(0.0);
+
+    let mut d = 1;
+    let mut n = v;
+
+    for _ in 0..MAX_ITER {
+        let f = n.fract();
+        if f < EPSILON {
+            break;
+        }
+
+        if d > u32::MAX as u64 {
+            break;
+        }
+
+        d = (d as f32 / f).ceil() as u64;
+        n = v * d as f32;
+    }
+
+    let z = n.trunc() as u64;
+
+    let g = gcd(z, d);
+    return (z / g, d / g);
 }
