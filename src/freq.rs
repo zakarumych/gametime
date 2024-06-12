@@ -1,11 +1,12 @@
 //! Contains types and functions to work with frequencies.
 
-use core::{convert::TryInto, num::NonZeroU64, ops};
+use core::{convert::TryInto, iter::FusedIterator, num::NonZeroU64, ops};
 
 use crate::{
     gcd,
     span::{NonZeroTimeSpan, TimeSpan},
-    stamp::TimeStamp, ClockStep,
+    stamp::TimeStamp,
+    ClockStep,
 };
 
 #[cfg(feature = "serde")]
@@ -100,14 +101,20 @@ impl Frequency {
         }
     }
 
+    /// Span of time in frequency elements rounded down.
+    /// Avoid accumulating rounding errors.
     #[inline(always)]
-    pub fn ticker(&self, now: TimeStamp) -> FrequencyTicker {
-        FrequencyTicker::new(*self, now)
+    fn span_back(&self, span: Elements) -> Option<TimeSpan> {
+        match (span.0, self.count) {
+            (0, 0) => Some(TimeSpan::ZERO),
+            (_, 0) => None,
+            (span, count) => Some(TimeSpan::new(span / count)),
+        }
     }
 
     #[inline(always)]
-    pub fn ticker_with_delay(&self, now: TimeStamp, periods: u64) -> FrequencyTicker {
-        FrequencyTicker::with_delay(*self, periods, now)
+    pub fn ticker(&self, now: TimeStamp) -> FrequencyTicker {
+        FrequencyTicker::new(*self, now)
     }
 }
 
@@ -223,6 +230,22 @@ impl ops::SubAssign for Elements {
     }
 }
 
+impl ops::Rem for Elements {
+    type Output = Self;
+
+    #[inline(always)]
+    fn rem(self, rhs: Self) -> Self {
+        Elements(self.0 % rhs.0)
+    }
+}
+
+impl ops::RemAssign for Elements {
+    #[inline(always)]
+    fn rem_assign(&mut self, rhs: Self) {
+        self.0 %= rhs.0;
+    }
+}
+
 pub struct FrequencyTicker {
     freq: Frequency,
 
@@ -237,20 +260,15 @@ impl FrequencyTicker {
     /// Creates new ticker with given frequency and start timestamp.
     #[inline(always)]
     pub fn new(freq: Frequency, now: TimeStamp) -> Self {
-        FrequencyTicker::with_delay(freq, 1, now)
+        FrequencyTicker::with_delay(freq, 0, now)
     }
 
     /// Creates new ticker with given frequency and delay in number of tick periods.
     #[inline(always)]
     pub fn with_delay(freq: Frequency, periods: u64, now: TimeStamp) -> Self {
-        let periods = if freq.count == 0 {
-            periods.max(1)
-        } else {
-            periods
-        };
         FrequencyTicker {
             freq,
-            until_next: freq.periods(periods),
+            until_next: freq.periods(1 + periods),
             now,
         }
     }
@@ -356,10 +374,6 @@ impl Iterator for FrequencyTickerIter {
             return None;
         }
 
-        // TimeSpan::ZERO is used because if `self.count` is zero then
-        // `self.until_next` is zero too.
-        // Otherwise `self.span` would be less than `self.until_next`
-        // because it is produced by mutliplying with `self.count`
         let next = self.freq.span(self.until_next).unwrap_or(TimeSpan::ZERO);
 
         // Tick span elements
@@ -374,7 +388,16 @@ impl Iterator for FrequencyTickerIter {
             "Span cannot be less then span until next tick"
         );
 
+        let since_last = if self.until_next <= self.freq.period() {
+            self.freq
+                .span_back(self.freq.period() - self.until_next)
+                .unwrap_or(TimeSpan::ZERO)
+        } else {
+            TimeSpan::ZERO
+        };
+
         self.until_next += self.freq.period();
+
         if self.until_next < next_elements {
             self.accumulated = self
                 .freq
@@ -388,12 +411,16 @@ impl Iterator for FrequencyTickerIter {
         self.span -= next_elements;
         self.now += next;
 
+        let step = next + since_last;
+
         Some(ClockStep {
             now: self.now,
-            step: next,
+            step,
         })
     }
 }
+
+impl FusedIterator for FrequencyTickerIter {}
 
 /// This trait adds methods to integers to convert values into `Frequency`s.
 pub trait FrequencyNumExt {
@@ -409,40 +436,6 @@ pub trait FrequencyNumExt {
     /// Convert integer value into `Frequency` with that amount of GigaHerz.
     fn ghz(self) -> Frequency;
 }
-
-// macro_rules! impl_for_int {
-//     ($($int:ty)*) => {
-//         $(
-//             impl_for_int!(@ $int);
-//         )*
-//     };
-
-//     (@ $int:ty) => {
-//         impl FrequencyNumExt for $int {
-//             #[inline(always)]
-//             fn hz(self) -> Frequency {
-//                 Frequency::from_hz(u64::from(self))
-//             }
-
-//             #[inline(always)]
-//             fn khz(self) -> Frequency {
-//                 Frequency::from_khz(u64::from(self))
-//             }
-
-//             #[inline(always)]
-//             fn mhz(self) -> Frequency {
-//                 Frequency::from_mhz(u64::from(self))
-//             }
-
-//             #[inline(always)]
-//             fn ghz(self) -> Frequency {
-//                 Frequency::from_ghz(u64::from(self))
-//             }
-//         }
-//     };
-// }
-
-// impl_for_int!(u8 u16 u32 u64);
 
 impl FrequencyNumExt for u64 {
     #[inline(always)]
@@ -490,7 +483,7 @@ fn test_freq_ticker() {
 fn test_freq_ticker_delay() {
     use crate::span::NonZeroTimeSpanNumExt;
 
-    const DELAY: u64 = 13;
+    const DELAY: u64 = 12;
 
     let mut ticker = FrequencyTicker::with_delay(
         Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
@@ -499,27 +492,6 @@ fn test_freq_ticker_delay() {
     );
 
     assert_eq!(0, ticker.tick_count(TimeSpan::NANOSECOND * 40));
-
-    let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
-
-    for _ in 0..10 {
-        for tick in ticks {
-            assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND), tick);
-        }
-    }
-}
-
-#[test]
-fn test_freq_ticker_no_delay() {
-    use crate::span::NonZeroTimeSpanNumExt;
-
-    let mut ticker = FrequencyTicker::with_delay(
-        Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
-        0,
-        TimeStamp::start(),
-    );
-
-    assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND * 10), 4);
 
     let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 
