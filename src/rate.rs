@@ -184,14 +184,14 @@ fn ftor(value: f32) -> (u64, u64) {
     return (z / g, d / g);
 }
 
-fn check_ftor(v: f32) {
-    let (n, d) = ftor(v);
-    let e = (v - (n as f32 / d as f32)).abs();
-    assert!(e < 1e-6);
-}
 
 #[test]
 fn test_large() {
+    fn check_ftor(v: f32) {
+        let (n, d) = ftor(v);
+        let e = (v - (n as f32 / d as f32)).abs();
+        assert!(e < 1e-6);
+    }
     check_ftor(1.0);
     check_ftor(1.0 / 3.0);
     check_ftor(1.0 / 7.0);

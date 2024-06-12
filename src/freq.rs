@@ -5,7 +5,7 @@ use core::{convert::TryInto, num::NonZeroU64, ops};
 use crate::{
     gcd,
     span::{NonZeroTimeSpan, TimeSpan},
-    stamp::TimeStamp,
+    stamp::TimeStamp, ClockStep,
 };
 
 #[cfg(feature = "serde")]
@@ -296,7 +296,7 @@ impl FrequencyTicker {
     /// Advances ticker forward for `step` and calls provided closure with ticks
     /// since last advancement.
     #[inline(always)]
-    pub fn with_ticks(&mut self, step: TimeSpan, f: impl FnMut(TimeStamp)) {
+    pub fn with_ticks(&mut self, step: TimeSpan, f: impl FnMut(ClockStep)) {
         self.ticks(step).for_each(f)
     }
 
@@ -340,13 +340,16 @@ impl FrequencyTickerIter {
 }
 
 impl Iterator for FrequencyTickerIter {
-    type Item = TimeStamp;
+    type Item = ClockStep;
 
     #[inline]
-    fn next(&mut self) -> Option<TimeStamp> {
+    fn next(&mut self) -> Option<ClockStep> {
         if self.accumulated > 0 {
             self.accumulated -= 1;
-            return Some(self.now);
+            return Some(ClockStep {
+                now: self.now,
+                step: TimeSpan::ZERO,
+            });
         }
 
         if self.span < self.until_next {
@@ -384,7 +387,11 @@ impl Iterator for FrequencyTickerIter {
 
         self.span -= next_elements;
         self.now += next;
-        Some(self.now)
+
+        Some(ClockStep {
+            now: self.now,
+            step: next,
+        })
     }
 }
 
@@ -468,7 +475,8 @@ fn test_freq_ticker() {
         TimeStamp::start(),
     );
 
-    ticker.tick_count(TimeSpan::NANOSECOND * 10);
+    assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND * 10), 3);
+
     let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 
     for _ in 0..10 {
@@ -482,7 +490,7 @@ fn test_freq_ticker() {
 fn test_freq_ticker_delay() {
     use crate::span::NonZeroTimeSpanNumExt;
 
-    const DELAY: u64 = 11;
+    const DELAY: u64 = 13;
 
     let mut ticker = FrequencyTicker::with_delay(
         Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
@@ -490,11 +498,28 @@ fn test_freq_ticker_delay() {
         TimeStamp::start(),
     );
 
-    let mut delay = DELAY;
-    while delay > 0 {
-        ticker.tick_count(TimeSpan::NANOSECOND * 10);
-        delay -= 3;
+    assert_eq!(0, ticker.tick_count(TimeSpan::NANOSECOND * 40));
+
+    let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
+
+    for _ in 0..10 {
+        for tick in ticks {
+            assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND), tick);
+        }
     }
+}
+
+#[test]
+fn test_freq_ticker_no_delay() {
+    use crate::span::NonZeroTimeSpanNumExt;
+
+    let mut ticker = FrequencyTicker::with_delay(
+        Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
+        0,
+        TimeStamp::start(),
+    );
+
+    assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND * 10), 4);
 
     let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 
@@ -540,9 +565,18 @@ fn test_hz() {
     assert_eq!(
         ticks,
         vec![
-            TimeStamp::start() + TimeSpan::new(333_333_334),
-            TimeStamp::start() + TimeSpan::new(666_666_667),
-            TimeStamp::start() + TimeSpan::new(1_000_000_000),
+            ClockStep {
+                now: TimeStamp::start() + TimeSpan::new(333_333_334),
+                step: TimeSpan::new(333_333_334),
+            },
+            ClockStep {
+                now: TimeStamp::start() + TimeSpan::new(666_666_667),
+                step: TimeSpan::new(333_333_333),
+            },
+            ClockStep {
+                now: TimeStamp::start() + TimeSpan::new(1_000_000_000),
+                step: TimeSpan::new(333_333_333),
+            },
         ]
     );
 }
