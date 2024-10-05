@@ -36,7 +36,7 @@ mod stamp;
 
 pub use crate::{
     freq::{Frequency, FrequencyNumExt, FrequencyTicker, FrequencyTickerIter},
-    span::{TimeSpan, TimeSpanNumExt},
+    span::{NonZeroTimeSpan, NonZeroTimeSpanNumExt, TimeSpan, TimeSpanNumExt},
     stamp::TimeStamp,
 };
 
