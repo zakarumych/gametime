@@ -2,6 +2,7 @@
 //! traits and functions to work with it.
 
 use core::{
+    fmt,
     num::NonZeroU64,
     ops::{Add, AddAssign, Sub},
     time::Duration,
@@ -10,11 +11,27 @@ use core::{
 use crate::span::TimeSpan;
 
 /// A fixed point in time relative to the reference point in time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TimeStamp {
     /// Number of nanoseconds elapsed from reference point in time.
     nanos: NonZeroU64,
+}
+
+impl fmt::Debug for TimeStamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let elapsed: TimeSpan = self.elapsed_since_start();
+        fmt::Debug::fmt(&elapsed, f)?;
+        f.write_str(" since start")
+    }
+}
+
+impl fmt::Display for TimeStamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let elapsed: TimeSpan = self.elapsed_since_start();
+        fmt::Display::fmt(&elapsed, f)?;
+        f.write_str(" since start")
+    }
 }
 
 impl TimeStamp {
