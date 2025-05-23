@@ -71,7 +71,7 @@ macro_rules! timespan {
     ($y:literal y) => { $crate::timespan!($y years) };
 
     ($y:literal years) => {{
-        let years = $y * $crate::__as($crate::TimeSpan::YEAR.as_nanos() as _, &$d);
+        let years = $y * $crate::__as($crate::TimeSpan::YEAR.as_nanos() as _, &$y);
         $crate::TimeSpan::new(years as u64)
     }};
 
@@ -142,13 +142,14 @@ macro_rules! ts {
 }
 
 #[cfg(test)]
-const TEST_SPANS: [TimeSpan; 6] = [
+const TEST_SPANS: [TimeSpan; 7] = [
     timespan!(1 day),   // 1 day
     timespan!(2:3:1),   // 2 hours, 3 minutes, 1 second
     timespan!(3 hrs),   // 3 hours
     timespan!(2:3),     // 2 minutes, 3 seconds
     timespan!(3 mins),  // 3 minutes
     timespan!(42 secs), // 42 seconds
+    timespan!(2 years), // 2 years
 ];
 
 #[test]
