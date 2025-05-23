@@ -17,37 +17,39 @@
 //!
 //! - `std` - enables `std` support, including `Clock` and `ClockStep` types.
 //! - `global_reference` - enables [`TimeStamp::now`] function to get time stamp
-//! relative to global reference point that is initialized by first call to
-//! [`TimeStamp::now`].
+//!   relative to global reference point that is initialized by first call to
+//!   [`TimeStamp::now`].
 //! - `serde` - enables `serde` support for [`TimeSpan`] and [`Frequency`].
 //!
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(missing_docs)]
+#![deny(clippy::pedantic)]
 
 #[cfg(feature = "std")]
 mod clock;
 
-#[cfg(feature = "std")]
-mod rate;
-
 mod freq;
+mod rate;
 mod span;
 mod stamp;
 
+/// Provides access to global reference point for time measurement.
+#[cfg(feature = "global_reference")]
+pub mod global_reference;
+
 pub use crate::{
     freq::{Frequency, FrequencyNumExt, FrequencyTicker, FrequencyTickerIter},
+    rate::ClockRate,
     span::{NonZeroTimeSpan, NonZeroTimeSpanNumExt, TimeSpan, TimeSpanNumExt},
     stamp::TimeStamp,
 };
 
 #[cfg(feature = "std")]
-pub use crate::{
-    clock::{Clock, ClockStep},
-    rate::ClockRate,
-};
+pub use crate::clock::{Clock, ClockStep};
 
-#[cfg(feature = "global_reference")]
-pub use crate::stamp::global_reference;
+#[cfg(all(feature = "global_reference", feature = "std"))]
+pub use crate::clock::GlobalClock;
 
 #[doc(hidden)]
 pub trait U64ORF64 {}
@@ -57,7 +59,7 @@ impl U64ORF64 for f64 {}
 
 /// Cast helper for [`timespan!`] macro.
 #[doc(hidden)]
-#[inline(always)]
+#[inline]
 pub const fn __as<T>(a: T, _: &T) -> T
 where
     T: U64ORF64,

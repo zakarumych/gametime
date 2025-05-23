@@ -6,12 +6,9 @@ use core::num::NonZeroU64;
 
 use crate::{gcd, span::TimeSpan, stamp::TimeStamp, ClockStep, Frequency, FrequencyTicker};
 
-/// Time measuring device.
-/// Uses system monotonic clock counter
-/// and yields `ClockStep`s for each step.
-///
-/// Rate can be set to control the speed of the clock.
-#[derive(Clone)] // Not Copy to avoid accidental copying.
+/// Produces clock steps with given rate.
+/// Uses external time span to advance the clock,
+/// usually from some `Clock`.
 pub struct ClockRate {
     now: TimeStamp,
     nom: u64,
@@ -20,7 +17,7 @@ pub struct ClockRate {
 }
 
 impl Default for ClockRate {
-    #[inline(always)]
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -28,12 +25,15 @@ impl Default for ClockRate {
 
 impl ClockRate {
     /// Returns new `ClockRate` instance.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn new() -> Self {
+        #![allow(clippy::missing_panics_doc)] // False positive. Panics is in const context.
+
         ClockRate {
             now: TimeStamp::start(),
             nom: 1,
-            denom: NonZeroU64::new(1).unwrap(),
+            denom: const { NonZeroU64::new(1).unwrap() },
             until_next: 0,
         }
     }
@@ -41,7 +41,7 @@ impl ClockRate {
     /// Resets the clock.
     /// Sets start to the given instant.
     /// And set clocks to start.
-    #[inline(always)]
+    #[inline]
     pub fn reset(&mut self) {
         self.now = TimeStamp::start();
         self.until_next = 0;
@@ -53,12 +53,14 @@ impl ClockRate {
     }
 
     /// Sets current clock time to given time stamp.
+    #[must_use]
     pub fn with_now(mut self, now: TimeStamp) -> Self {
         self.set_now(now);
         self
     }
 
     /// Returns time stamp corresponding to "now" of the last step.
+    #[must_use]
     pub fn now(&self) -> TimeStamp {
         self.now
     }
@@ -71,13 +73,17 @@ impl ClockRate {
     }
 
     /// Set rate to specified float value.
+    #[must_use]
     pub fn with_rate(mut self, rate: f32) -> Self {
         self.set_rate(rate);
         self
     }
 
-    /// Returns current rate.
+    /// Returns current rate as float value.
+    /// May be approximated.
+    #[must_use]
     pub fn rate(&self) -> f64 {
+        #![allow(clippy::cast_precision_loss)] // Precision loss is acceptable here.
         self.nom as f64 / self.denom.get() as f64
     }
 
@@ -88,6 +94,7 @@ impl ClockRate {
     }
 
     /// Set rate to specified ratio.
+    #[must_use]
     pub fn with_rate_ratio(mut self, nom: u64, denom: NonZeroU64) -> Self {
         self.set_rate_ratio(nom, denom);
         self
@@ -131,22 +138,30 @@ impl ClockRate {
         }
     }
 
+    /// Creates a new `ClockRate` instance with frequency multiplied by this clock rate.
+    #[must_use]
     pub fn ticker(&self, freq: Frequency) -> FrequencyTicker {
-        let gcd1 = gcd(self.nom, freq.period.get());
-        let nom = self.nom / gcd1;
-        let period = freq.period.get() / gcd1;
-
+        let gcd1 = gcd(self.nom, freq.cycle.get());
         let gcd2 = gcd(freq.count, self.denom.get());
-        let count = freq.count / gcd2;
+
+        let nom = self.nom / gcd1;
         let denom = self.denom.get() / gcd2;
 
-        FrequencyTicker::new(
-            Frequency {
-                count: nom * count,
-                period: NonZeroU64::new(denom * period).unwrap(),
-            },
-            self.now,
-        )
+        let count = freq.count / gcd2;
+        let period = freq.cycle.get() / gcd1;
+
+        let count = nom * count;
+
+        match NonZeroU64::new(denom * period) {
+            None => unreachable!(),
+            Some(cycle) => FrequencyTicker::new(
+                Frequency {
+                    count,
+                    cycle,
+                },
+                self.now,
+            ),
+        }
     }
 }
 
@@ -156,32 +171,52 @@ fn rate2ratio(rate: f32) -> (u64, NonZeroU64) {
 }
 
 fn ftor(value: f32) -> (u64, u64) {
+    #![allow(clippy::cast_sign_loss)] // False positive. Sign loss never occurs here, as values are positive.
+    #![allow(clippy::cast_precision_loss)] // Precision loss is acceptable here.
+    #![allow(clippy::cast_possible_truncation)] // Truncation is acceptable here.
+
     const EPSILON: f32 = 1e-6;
     const MAX_ITER: usize = 50;
 
-    let v = value.max(0.0);
+    let value = value.max(0.0);
 
-    let mut d = 1;
-    let mut n = v;
+    if value == f32::INFINITY {
+        return (1, 0);
+    }
+
+    if value > u64::MAX as f32 {
+        // This is closest approximation.
+        return (u64::MAX, 1);
+    }
+
+    let mut denom = 1;
+    let mut nom = value;
 
     for _ in 0..MAX_ITER {
-        let f = n.fract();
+        let f = nom.fract();
         if f < EPSILON {
             break;
         }
 
-        if d > u32::MAX as u64 {
+        if denom > u64::from(u32::MAX) {
             break;
         }
 
-        d = (d as f32 / f).ceil() as u64;
-        n = v * d as f32;
+        denom = (denom as f32 / f).ceil() as u64;
+
+        let next = value * denom as f32;
+
+        if next > u64::MAX as f32 {
+            break;
+        }
+
+        nom = next;
     }
 
-    let z = n.trunc() as u64;
+    let nom = nom.trunc() as u64;
 
-    let g = gcd(z, d);
-    return (z / g, d / g);
+    let g = gcd(nom, denom);
+    (nom / g, denom / g)
 }
 
 

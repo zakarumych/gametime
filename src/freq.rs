@@ -12,109 +12,136 @@ use crate::{
 #[cfg(feature = "serde")]
 use serde::ser::SerializeTupleStruct;
 
-/// Represents frequency.
-/// Able to accurately represent any rational frequency.
+/// Represents frequency as a rational number.
 #[derive(Clone, Copy)]
 pub struct Frequency {
+    /// Number of periods in one cycle.
     pub count: u64,
-    pub period: NonZeroU64,
+
+    /// Number of nanoseconds in one cycle.
+    pub cycle: NonZeroU64,
 }
 
 impl Frequency {
-    #[inline(always)]
-    pub fn try_new(count: u64, period: TimeSpan) -> Option<Self> {
-        period
+    /// Creates new frequency from number of periods in one cycle and cycle time span.
+    /// Returns `None` if cycle is zero.
+    #[inline]
+    #[must_use]
+    pub fn try_new(count: u64, cycle: TimeSpan) -> Option<Self> {
+        cycle
             .try_into()
             .ok()
-            .map(|period| Frequency::new(count, period))
+            .map(|cycle| Frequency::new(count, cycle))
     }
 
-    pub fn new(count: u64, period: NonZeroTimeSpan) -> Self {
-        let gcd = gcd(count, period.as_nanos().get());
+    /// Creates new frequency from number of periods in one cycle and cycle time span.
+    /// Uses non-zero time span for cycle.
+    #[must_use]
+    pub fn new(count: u64, cycle: NonZeroTimeSpan) -> Self {
+        let gcd = gcd(count, cycle.as_nanos().get());
         let count = count / gcd;
-        let period_nanos = period.as_nanos().get() / gcd;
+        let cycle_nanos = cycle.as_nanos().get() / gcd;
 
-        Frequency {
-            count,
-            period: NonZeroU64::new(period_nanos).unwrap(),
+        match NonZeroU64::new(cycle_nanos) {
+            None => unreachable!(),
+            Some(cycle) => Frequency { count, cycle },
         }
     }
 
-    #[inline(always)]
+    /// Creates frequency from number of Hertz.
+    #[inline]
+    #[must_use]
     pub fn from_hz(value: u64) -> Self {
         Frequency::new(value, NonZeroTimeSpan::SECOND)
     }
 
-    #[inline(always)]
+    /// Creates frequency from number of `KiloHertz`.
+    #[inline]
+    #[must_use]
     pub fn from_khz(value: u64) -> Self {
         Frequency::new(value, NonZeroTimeSpan::MILLISECOND)
     }
 
-    #[inline(always)]
+    /// Creates frequency from number of `MegaHertz`.
+    #[inline]
+    #[must_use]
     pub fn from_mhz(value: u64) -> Self {
         Frequency::new(value, NonZeroTimeSpan::MICROSECOND)
     }
 
-    #[inline(always)]
+    /// Creates frequency from number of `GigaHertz`.
+    #[inline]
+    #[must_use]
     pub fn from_ghz(value: u64) -> Self {
         Frequency::new(value, NonZeroTimeSpan::NANOSECOND)
     }
 
-    #[inline(always)]
-    pub fn periods_in(&self, span: TimeSpan) -> u64 {
-        self.periods_in_elements(self.elements(span))
-    }
-
-    #[inline(always)]
+    /// Element is a nanosecond divided by count of periods in one cycle.
+    /// Return number of elements in the given time span.
+    #[inline]
     fn elements(&self, span: TimeSpan) -> Elements {
         Elements(span.as_nanos() * self.count)
     }
 
-    #[inline(always)]
-    fn periods_in_elements(&self, span: Elements) -> u64 {
-        span.0 / self.period
+    /// Returns the number of periods in the given time span.
+    #[inline]
+    #[must_use]
+    pub fn periods_in_span(&self, span: TimeSpan) -> u64 {
+        self.periods_in_elements(self.elements(span)).0
     }
 
-    #[inline(always)]
-    fn period(&self) -> Elements {
-        Elements(self.period.get())
+    /// Returns the elements of a single period.
+    #[inline]
+    fn period_elements(&self) -> Elements {
+        Elements(self.cycle.get())
     }
 
-    #[inline(always)]
-    fn periods(&self, count: u64) -> Elements {
-        Elements(self.period.get() * count)
+    /// Returns the elements of given number of periods.
+    #[inline]
+    fn periods_elements(&self, count: u64) -> Elements {
+        Elements(self.cycle.get() * count)
     }
 
-    #[inline(always)]
+    /// Returns the number of periods fit in specified elements count.
+    /// And remaining elements.
+    #[inline]
+    fn periods_in_elements(&self, span: Elements) -> (u64, Elements) {
+        let periods = span.0 / self.cycle.get();
+        let remaining = Elements(span.0 % self.cycle.get());
+        (periods, remaining)
+    }
+
+    /// Returns the number of elements until next tick.
+    #[inline]
     fn until_next(&self, span: Elements) -> Elements {
-        Elements(self.period.get() - span.0 % self.period)
+        Elements(self.cycle.get() - span.0 % self.cycle)
     }
 
-    /// Span of time in frequency elements rounded up.
-    /// Avoid accumulating rounding errors.
-    #[inline(always)]
-    fn span(&self, span: Elements) -> Option<TimeSpan> {
+    /// Span that contains the given number of frequency elements.
+    #[inline]
+    fn span_fitting_elements(&self, span: Elements) -> Option<TimeSpan> {
         match (span.0, self.count) {
             (0, 0) => Some(TimeSpan::ZERO),
-            (_, 0) => None,
-            (span, count) => Some(TimeSpan::new((span + (count - 1)) / count)),
+            (_, 0) => None, // Element is infinite
+            (span, count) => Some(TimeSpan::new(span.div_ceil(count))),
         }
     }
 
-    /// Span of time in frequency elements rounded down.
-    /// Avoid accumulating rounding errors.
-    #[inline(always)]
-    fn span_back(&self, span: Elements) -> Option<TimeSpan> {
-        match (span.0, self.count) {
-            (0, 0) => Some(TimeSpan::ZERO),
-            (_, 0) => None,
-            (span, count) => Some(TimeSpan::new(span / count)),
-        }
-    }
+    // /// Span contained within the frequency elements.
+    // #[inline]
+    // fn span_fits_in_elements(&self, span: Elements) -> Option<TimeSpan> {
+    //     match (span.0, self.count) {
+    //         (0, 0) => Some(TimeSpan::ZERO),
+    //         (_, 0) => None, // Element is infinite
+    //         (span, count) => Some(TimeSpan::new(span / count)),
+    //     }
+    // }
 
-    #[inline(always)]
-    pub fn ticker(&self, now: TimeStamp) -> FrequencyTicker {
-        FrequencyTicker::new(*self, now)
+    /// Returns new ticker with this frequency and given start time stamp.
+    #[inline]
+    #[must_use]
+    pub fn ticker(&self, start: TimeStamp) -> FrequencyTicker {
+        FrequencyTicker::new(*self, start)
     }
 }
 
@@ -122,11 +149,11 @@ impl Frequency {
 impl serde::Serialize for Frequency {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            serializer.serialize_str(&format!("{}/{} Hz", self.count, self.period))
+            serializer.serialize_str(&format!("{}/{} Hz", self.count, self.cycle))
         } else {
             let mut serializer = serializer.serialize_tuple_struct("Frequency", 2)?;
             serializer.serialize_field(&self.count)?;
-            serializer.serialize_field(&self.period)?;
+            serializer.serialize_field(&self.cycle)?;
             serializer.end()
         }
     }
@@ -149,20 +176,20 @@ impl<'de> serde::Deserialize<'de> for Frequency {
                     let count = count.trim();
                     let count = count.parse().map_err(serde::de::Error::custom)?;
 
-                    let period = NonZeroU64::new(1).unwrap();
-                    return Ok(Frequency { count, period });
+                    let cycle = const { NonZeroU64::new(1).unwrap() };
+                    return Ok(Frequency { count, cycle });
                 }
 
                 Some((count, s)) => {
                     let count = count.trim();
                     let count = count.parse().map_err(serde::de::Error::custom)?;
-                    let period = s
+                    let cycle = s
                         .strip_suffix("Hz")
                         .ok_or_else(|| serde::de::Error::custom("Wrong frequency format"))?;
-                    let period = period.trim();
-                    let period = period.parse().map_err(serde::de::Error::custom)?;
+                    let cycle = cycle.trim();
+                    let cycle = cycle.parse().map_err(serde::de::Error::custom)?;
 
-                    return Ok(Frequency { count, period });
+                    return Ok(Frequency { count, cycle });
                 }
             }
         } else {
@@ -182,10 +209,10 @@ impl<'de> serde::Deserialize<'de> for Frequency {
                     let count = seq
                         .next_element()?
                         .ok_or_else(|| serde::de::Error::custom("Frequency is empty"))?;
-                    let period = seq
+                    let cycle = seq
                         .next_element()?
                         .ok_or_else(|| serde::de::Error::custom("Frequency is empty"))?;
-                    Ok(Frequency { count, period })
+                    Ok(Frequency { count, cycle })
                 }
             }
 
@@ -201,14 +228,14 @@ struct Elements(u64);
 impl ops::Add for Elements {
     type Output = Self;
 
-    #[inline(always)]
+    #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         Elements(self.0 + rhs.0)
     }
 }
 
 impl ops::AddAssign for Elements {
-    #[inline(always)]
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
     }
@@ -217,14 +244,14 @@ impl ops::AddAssign for Elements {
 impl ops::Sub for Elements {
     type Output = Self;
 
-    #[inline(always)]
+    #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
         Elements(self.0 - rhs.0)
     }
 }
 
 impl ops::SubAssign for Elements {
-    #[inline(always)]
+    #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0;
     }
@@ -233,19 +260,22 @@ impl ops::SubAssign for Elements {
 impl ops::Rem for Elements {
     type Output = Self;
 
-    #[inline(always)]
+    #[inline]
     fn rem(self, rhs: Self) -> Self {
         Elements(self.0 % rhs.0)
     }
 }
 
 impl ops::RemAssign for Elements {
-    #[inline(always)]
+    #[inline]
     fn rem_assign(&mut self, rhs: Self) {
         self.0 %= rhs.0;
     }
 }
 
+/// Ticker with the given frequency.
+///
+/// Creates tick iterators on each step that emits `ClockStep`s with exactly given frequency.
 pub struct FrequencyTicker {
     freq: Frequency,
 
@@ -258,30 +288,33 @@ pub struct FrequencyTicker {
 
 impl FrequencyTicker {
     /// Creates new ticker with given frequency and start timestamp.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn new(freq: Frequency, now: TimeStamp) -> Self {
         FrequencyTicker::with_delay(freq, 0, now)
     }
 
     /// Creates new ticker with given frequency and delay in number of tick periods.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn with_delay(freq: Frequency, periods: u64, now: TimeStamp) -> Self {
         FrequencyTicker {
             freq,
-            until_next: freq.periods(1 + periods),
+            until_next: freq.periods_elements(1 + periods),
             now,
         }
     }
 
     /// Returns next timestamp when next tick will happen.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn next_tick(&self) -> Option<TimeStamp> {
-        Some(self.now + self.freq.span(self.until_next)?)
+        Some(self.now + self.freq.span_fitting_elements(self.until_next)?)
     }
 
     /// Advances ticker forward for `span` and returns iterator over ticks
     /// since last advancement.
-    #[inline(always)]
+    #[inline]
     pub fn ticks(&mut self, step: TimeSpan) -> FrequencyTickerIter {
         let span = self.freq.elements(step);
 
@@ -306,31 +339,36 @@ impl FrequencyTicker {
 
     /// Advances ticker forward to `now` and returns number of ticks
     /// since last advancement.
-    #[inline(always)]
+    #[inline]
     pub fn tick_count(&mut self, step: TimeSpan) -> u64 {
         self.ticks(step).ticks()
     }
 
-    /// Advances ticker forward for `step` and calls provided closure with ticks
-    /// since last advancement.
-    #[inline(always)]
+    /// Advances ticker forward for `step` and calls provided closure with `ClockStep`s.
+    #[inline]
     pub fn with_ticks(&mut self, step: TimeSpan, f: impl FnMut(ClockStep)) {
-        self.ticks(step).for_each(f)
+        self.ticks(step).for_each(f);
     }
 
-    /// Returns current frequency of the ticker.
-    #[inline(always)]
+    /// Returns frequency of the ticker.
+    #[inline]
+    #[must_use]
     pub fn frequency(&self) -> Frequency {
         self.freq
     }
 
     /// Sets new frequency of the ticker.
-    #[inline(always)]
-    pub fn set_frequency(&mut self, freq: Frequency) {
+    ///
+    /// If `clip_period` is true, then next tick will happen at least in the frequency period.
+    /// If `clip_period` is false, then next tick will happen at the same time as before setting the frequency.
+    #[inline]
+    pub fn set_frequency(&mut self, freq: Frequency, clip_period: bool) {
         self.freq = freq;
-        let period = freq.period();
-        if self.until_next > period {
-            self.until_next = period;
+        if clip_period {
+            let period = freq.period_elements();
+            if self.until_next > period {
+                self.until_next = period;
+            }
         }
     }
 }
@@ -347,13 +385,14 @@ pub struct FrequencyTickerIter {
 impl FrequencyTickerIter {
     /// Returns number of ticks this iterator will produce.
     #[inline]
+    #[must_use]
     pub fn ticks(&self) -> u64 {
         if self.span < self.until_next {
             return 0;
         }
 
         let span = self.span - self.until_next;
-        1 + self.freq.periods_in_elements(span)
+        1 + self.freq.periods_in_elements(span).0
     }
 }
 
@@ -374,48 +413,39 @@ impl Iterator for FrequencyTickerIter {
             return None;
         }
 
-        let next = self.freq.span(self.until_next).unwrap_or(TimeSpan::ZERO);
+        // This may not be None.
+        // If freq.count is 0, then span is 0.
+        // And this may only be called if until_next is 0.
+        // But for better code-gen it uses unwrap_or to not generate panic code.
+        let next = self
+            .freq
+            .span_fitting_elements(self.until_next)
+            .unwrap_or(TimeSpan::ZERO);
 
-        // Tick span elements
-        let next_elements = self.freq.elements(next);
+        // Advance a whole number of nanoseconds in elements.
+        let advance = self.freq.elements(next);
 
         debug_assert!(
-            next_elements <= self.span,
+            advance <= self.span,
             "Span cannot be greater than total span left in iterator"
         );
         debug_assert!(
-            next_elements >= self.until_next,
+            advance >= self.until_next,
             "Span cannot be less then span until next tick"
         );
 
-        let since_last = if self.until_next <= self.freq.period() {
-            self.freq
-                .span_back(self.freq.period() - self.until_next)
-                .unwrap_or(TimeSpan::ZERO)
-        } else {
-            TimeSpan::ZERO
-        };
+        let (periods, remaining) = self.freq.periods_in_elements(advance - self.until_next);
 
-        self.until_next += self.freq.period();
+        self.accumulated = periods;
 
-        if self.until_next < next_elements {
-            self.accumulated = self
-                .freq
-                .periods_in_elements(next_elements - self.until_next);
+        self.until_next = self.freq.period_elements() - remaining;
 
-            self.until_next = self.freq.until_next(next_elements - self.until_next);
-        } else {
-            self.until_next -= next_elements;
-        }
-
-        self.span -= next_elements;
+        self.span -= advance;
         self.now += next;
-
-        let step = next + since_last;
 
         Some(ClockStep {
             now: self.now,
-            step,
+            step: next,
         })
     }
 }
@@ -427,33 +457,33 @@ pub trait FrequencyNumExt {
     /// Convert integer value into `Frequency` with that amount of Herz.
     fn hz(self) -> Frequency;
 
-    /// Convert integer value into `Frequency` with that amount of KiloHerz.
+    /// Convert integer value into `Frequency` with that amount of `KiloHerz`.
     fn khz(self) -> Frequency;
 
-    /// Convert integer value into `Frequency` with that amount of MegaHerz.
+    /// Convert integer value into `Frequency` with that amount of `MegaHerz`.
     fn mhz(self) -> Frequency;
 
-    /// Convert integer value into `Frequency` with that amount of GigaHerz.
+    /// Convert integer value into `Frequency` with that amount of `GigaHerz`.
     fn ghz(self) -> Frequency;
 }
 
 impl FrequencyNumExt for u64 {
-    #[inline(always)]
+    #[inline]
     fn hz(self) -> Frequency {
         Frequency::from_hz(self)
     }
 
-    #[inline(always)]
+    #[inline]
     fn khz(self) -> Frequency {
         Frequency::from_khz(self)
     }
 
-    #[inline(always)]
+    #[inline]
     fn mhz(self) -> Frequency {
         Frequency::from_mhz(self)
     }
 
-    #[inline(always)]
+    #[inline]
     fn ghz(self) -> Frequency {
         Frequency::from_ghz(self)
     }

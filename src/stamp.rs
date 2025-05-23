@@ -10,7 +10,13 @@ use core::{
 
 use crate::span::TimeSpan;
 
-/// A fixed point in time relative to the reference point in time.
+/// A fixed point in time relative to a reference point in time.
+/// 
+/// The reference point depends on how the time stamp is created:
+/// - `Clock` return time stamp relative to the clock start.
+/// - `TimeStamp::now` returns time stamp relative to the global reference point initialized by the first call to this function.
+/// - Functions that create time stamp from another time stamp return time stamp relative to the reference point of the original time stamp.
+/// - User decides what reference point is for time spans returned by other mechanisms.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TimeStamp {
@@ -36,7 +42,8 @@ impl fmt::Display for TimeStamp {
 
 impl TimeStamp {
     /// Constructs the smallest possible time stamp.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn start() -> Self {
         TimeStamp {
             nanos: unsafe { NonZeroU64::new_unchecked(1) },
@@ -46,7 +53,8 @@ impl TimeStamp {
     /// Constructs the largest possible time stamp.
     ///
     /// It is practically impossible to reach it without using artificially large time spans.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn never() -> Self {
         TimeStamp {
             nanos: unsafe { NonZeroU64::new_unchecked(u64::MAX) },
@@ -54,7 +62,8 @@ impl TimeStamp {
     }
 
     /// Constructs time stamp from number of nanoseconds elapsed since reference point in time.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn from_elapsed(nanos: u64) -> Option<Self> {
         let nanos = nanos.checked_add(1)?;
         Some(TimeStamp {
@@ -67,7 +76,8 @@ impl TimeStamp {
     /// # Safety
     ///
     /// `nanos` must not be 0.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub unsafe fn new_unchecked(nanos: u64) -> Self {
         TimeStamp {
             nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
@@ -75,23 +85,26 @@ impl TimeStamp {
     }
 
     /// Returns time stamp corresponding to "now".
+    /// Uses global reference point in time initialized by first call to this function.
+    /// 
+    /// This function is only available if `global_reference` feature is enabled.
     #[cfg(feature = "global_reference")]
-    #[inline(always)]
+    #[inline]
     pub fn now() -> Self {
-        let (now, reference) = global_reference::now_and_reference();
-        let duration = now.duration_since(reference);
-
-        match TimeStamp::from_duration(duration) {
+        match TimeStamp::from_duration(crate::global_reference::elapsed()) {
             Some(stamp) => stamp,
             None => impressive(),
         }
     }
 
     /// Constructs time stamp from duration since reference point in time.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn from_duration(duration: Duration) -> Option<Self> {
+        #![allow(clippy::cast_possible_truncation)] // Truncation is not possible due to check.
+
         let nanos = duration.as_nanos();
-        if nanos > (u64::MAX - 1) as u128 {
+        if nanos > u128::from(u64::MAX - 1) {
             return None;
         }
         Some(TimeStamp {
@@ -107,18 +120,18 @@ impl TimeStamp {
     /// # Panics
     ///
     /// Panics if overflow occurs.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn from_observed_duration(duration: Duration) -> Self {
-        let nanos = duration.as_nanos();
-        if nanos > (u64::MAX - 1) as u128 {
-            impressive();
-        }
-        TimeStamp {
-            nanos: unsafe { NonZeroU64::new_unchecked(nanos as u64 + 1) },
+        match TimeStamp::from_duration(duration) {
+            Some(stamp) => stamp,
+            None => impressive(),
         }
     }
 
-    #[inline(always)]
+    /// Returns time span elapsed since `earlier` point in time.
+    #[inline]
+    #[must_use]
     pub const fn checked_elapsed_since(self, earlier: TimeStamp) -> Option<TimeSpan> {
         match self.nanos.get().checked_sub(earlier.nanos.get()) {
             None => None,
@@ -126,24 +139,36 @@ impl TimeStamp {
         }
     }
 
-    #[inline(always)]
+    /// Returns time span elapsed since `earlier` point in time.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if `earlier` time stamp is greater than `self` time stamp.
+    #[inline]
+    #[must_use]
     pub fn elapsed_since(self, earlier: TimeStamp) -> TimeSpan {
         self.checked_elapsed_since(earlier)
-            .expect("overflow when calculating time span elapsed since earlier")
+            .expect("`earlier` time stamp is greater than `self` time stamp")
     }
 
-    #[inline(always)]
+    /// Returns time span elapsed since start point in time.
+    #[inline]
+    #[must_use]
     pub fn elapsed_since_start(self) -> TimeSpan {
         TimeSpan::new(self.nanos.get() - 1)
     }
 
-    #[inline(always)]
+    /// Returns time span elapsed since start point in time.
+    #[inline]
+    #[must_use]
     pub fn nanos_since_start(self) -> u64 {
         self.nanos.get() - 1
     }
 
-    #[inline(always)]
-    pub fn add_span(self, span: TimeSpan) -> Option<TimeStamp> {
+    /// Returns checked time stamp after adding given time span.
+    #[inline]
+    #[must_use]
+    pub fn checked_add(self, span: TimeSpan) -> Option<TimeStamp> {
         let nanos = self.nanos.get().checked_add(span.as_nanos())?;
 
         Some(TimeStamp {
@@ -156,7 +181,7 @@ impl TimeStamp {
 impl Add<TimeSpan> for TimeStamp {
     type Output = TimeStamp;
 
-    #[inline(always)]
+    #[inline]
     fn add(self, rhs: TimeSpan) -> Self {
         let nanos = self
             .nanos
@@ -172,7 +197,7 @@ impl Add<TimeSpan> for TimeStamp {
 }
 
 impl AddAssign<TimeSpan> for TimeStamp {
-    #[inline(always)]
+    #[inline]
     fn add_assign(&mut self, rhs: TimeSpan) {
         *self = *self + rhs;
     }
@@ -181,44 +206,16 @@ impl AddAssign<TimeSpan> for TimeStamp {
 impl Sub<TimeStamp> for TimeStamp {
     type Output = TimeSpan;
 
-    #[inline(always)]
+    #[inline]
     fn sub(self, rhs: TimeStamp) -> TimeSpan {
         self.elapsed_since(rhs)
     }
 }
 
 #[cold]
-#[inline(always)]
+#[inline]
 fn impressive() -> ! {
     panic!(
         "Process runs for more than 500 years. Impressive. Upgrade to version with u128 value type"
     )
-}
-
-#[cfg(feature = "global_reference")]
-pub mod global_reference {
-    use core::mem::MaybeUninit;
-    use std::{sync::Once, time::Instant};
-
-    static GLOBAL_REFERENCE_INIT: Once = Once::new();
-    static mut GLOBAL_REFERENCE: MaybeUninit<Instant> = MaybeUninit::uninit();
-
-    fn get_or_init(value: Instant) -> Instant {
-        GLOBAL_REFERENCE_INIT.call_once(|| unsafe {
-            GLOBAL_REFERENCE.write(value);
-        });
-        unsafe { *GLOBAL_REFERENCE.assume_init_ref() }
-    }
-
-    #[inline(always)]
-    pub fn get() -> Instant {
-        get_or_init(Instant::now())
-    }
-
-    #[inline(always)]
-    pub fn now_and_reference() -> (Instant, Instant) {
-        let now = Instant::now();
-        let reference = get_or_init(now);
-        (now, reference)
-    }
 }
