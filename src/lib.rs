@@ -33,6 +33,7 @@ mod freq;
 mod rate;
 mod span;
 mod stamp;
+mod step;
 
 /// Provides access to global reference point for time measurement.
 #[cfg(feature = "global_reference")]
@@ -43,12 +44,14 @@ pub use crate::{
     rate::ClockRate,
     span::{TimeSpan, TimeSpanNumExt},
     stamp::TimeStamp,
+    step::ClockStep,
 };
 
-#[cfg(feature = "std")]
-pub use crate::clock::{Clock, ClockStep};
 
-#[cfg(all(feature = "global_reference", feature = "std"))]
+#[cfg(feature = "std")]
+pub use crate::clock::Clock;
+
+#[cfg(feature = "global_reference")]
 pub use crate::clock::GlobalClock;
 
 #[doc(hidden)]

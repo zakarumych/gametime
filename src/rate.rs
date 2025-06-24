@@ -4,7 +4,7 @@
 
 use core::num::NonZeroU64;
 
-use crate::{gcd, span::TimeSpan, stamp::TimeStamp, ClockStep, Frequency, FrequencyTicker};
+use crate::{gcd, span::TimeSpan, stamp::TimeStamp, step::ClockStep, Frequency, FrequencyTicker};
 
 /// Produces clock steps with given rate.
 /// Uses external time span to advance the clock,

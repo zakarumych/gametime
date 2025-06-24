@@ -4,20 +4,12 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{span::TimeSpan, stamp::TimeStamp, Frequency, FrequencyTicker};
+#[cfg(feature = "global_reference")]
+use crate::ClockStep;
+use crate::{stamp::TimeStamp, Frequency, FrequencyTicker};
 
-/// Result of `Clock` step.
-/// Contains time stamp corresponding to "now"
-/// and time span since previous step.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ClockStep {
-    /// `TimeStamp` corresponding to "now".
-    pub now: TimeStamp,
 
-    /// Time span since previous step.
-    pub step: TimeSpan,
-}
-
+#[cfg(feature = "std")]
 /// Time measuring device.
 /// Uses system monotonic clock counter
 /// and yields `ClockStep`s for each step.

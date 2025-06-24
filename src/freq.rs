@@ -2,7 +2,12 @@
 
 use core::{iter::FusedIterator, num::NonZeroU64, ops};
 
-use crate::{gcd, span::TimeSpan, stamp::TimeStamp, ClockStep};
+use crate::{
+    gcd,
+    span::TimeSpan,
+    stamp::TimeStamp,
+    step::ClockStep,
+};
 
 #[cfg(feature = "serde")]
 use serde::ser::SerializeTupleStruct;
