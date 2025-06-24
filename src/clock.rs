@@ -4,9 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "global_reference")]
-use crate::ClockStep;
-use crate::{stamp::TimeStamp, Frequency, FrequencyTicker};
+use crate::{stamp::TimeStamp, Frequency, FrequencyTicker, step::ClockStep};
 
 
 #[cfg(feature = "std")]

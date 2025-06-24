@@ -149,15 +149,40 @@ impl TimeSpan {
     pub fn display_to_buffer(self, buf: &mut [u8; Self::MAX_DISPLAY_LENGTH]) -> &mut str {
         #![allow(clippy::missing_panics_doc)] // False positive. Panics is not possible here.
 
-        use std::io::Write;
-        let mut write = &mut buf[..];
+        use fmt::Write;
 
-        match write!(&mut write, "{self}") {
-            Ok(()) => {
-                let unused = write.len();
-                let used = buf.len() - unused;
-                str::from_utf8_mut(&mut buf[..used]).expect("Valid UTF-8 written to buffer")
+        struct Buffer<'a> {
+            buf: &'a mut [u8; TimeSpan::MAX_DISPLAY_LENGTH],
+            offset: usize,
+        }
+
+        impl<'a> Buffer<'a> {
+            fn new(buf: &'a mut [u8; TimeSpan::MAX_DISPLAY_LENGTH]) -> Self {
+                Buffer { buf, offset: 0 }
             }
+
+            fn into_str(self) -> &'a mut str {
+                str::from_utf8_mut(&mut self.buf[..self.offset])
+                    .expect("Valid UTF-8 written to buffer")
+            }
+        }
+
+        impl<'a> Write for Buffer<'a> {
+            fn write_str(&mut self, s: &str) -> Result<(), fmt::Error> {
+                if s.len() > self.buf.len() - self.offset {
+                    return Err(fmt::Error);
+                }
+
+                self.buf[self.offset..][..s.len()].copy_from_slice(s.as_bytes());
+                self.offset += s.len();
+                Ok(())
+            }
+        }
+
+        let mut buffer = Buffer::new(buf);
+
+        match write!(&mut buffer, "{self}") {
+            Ok(()) => buffer.into_str(),
             Err(_) => unreachable!("Buffer is large enough to hold any time span"),
         }
     }

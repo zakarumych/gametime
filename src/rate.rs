@@ -199,7 +199,9 @@ fn ftor(value: f32) -> (u64, u64) {
     let mut nom = value;
 
     for _ in 0..MAX_ITER {
-        let f = nom.fract();
+        
+        let f = fract(nom);
+
         if f < EPSILON {
             break;
         }
@@ -208,7 +210,7 @@ fn ftor(value: f32) -> (u64, u64) {
             break;
         }
 
-        denom = (denom as f32 / f).ceil() as u64;
+        denom = ceil(denom as f32 / f) as u64;
 
         let next = value * denom as f32;
 
@@ -219,10 +221,44 @@ fn ftor(value: f32) -> (u64, u64) {
         nom = next;
     }
 
-    let nom = nom.trunc() as u64;
+    let nom = trunc(nom) as u64;
 
     let g = gcd(nom, denom);
     (nom / g, denom / g)
+}
+
+#[cfg(feature = "std")]
+#[inline(always)]
+fn trunc(value: f32) -> f32 {
+    value.trunc()
+}
+
+#[cfg(not(feature = "std"))]
+#[inline(always)]
+fn trunc(value: f32) -> f32 {
+    (value as u64) as f32
+}
+
+#[inline(always)]
+fn fract(value: f32) -> f32 {
+    value - trunc(value)
+}
+
+#[cfg(feature = "std")]
+#[inline(always)]
+fn ceil(value: f32) -> f32 {
+    value.ceil()
+}
+
+#[cfg(not(feature = "std"))]
+#[inline(always)]
+fn ceil(value: f32) -> f32 {
+    let t = trunc(value);
+    if t == value {
+        t
+    } else {
+        t + 1.0
+    }
 }
 
 #[test]
