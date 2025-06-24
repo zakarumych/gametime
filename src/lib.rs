@@ -74,14 +74,14 @@ macro_rules! timespan {
 
     ($y:literal years) => {{
         let years = $y * $crate::__as($crate::TimeSpan::YEAR.as_nanos() as _, &$y);
-        $crate::TimeSpan::new(years as u64)
+        $crate::TimeSpan::new(years as i64)
     }};
 
     ($d:literal d) => { $crate::timespan!($d days) };
 
     ($d:literal days) => {{
         let days = $d * $crate::__as($crate::TimeSpan::DAY.as_nanos() as _, &$d);
-        $crate::TimeSpan::new(days as u64)
+        $crate::TimeSpan::new(days as i64)
     }};
 
     ($h:literal : $m:literal : $s:literal) => {{

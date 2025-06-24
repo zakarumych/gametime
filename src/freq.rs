@@ -20,15 +20,20 @@ pub struct Frequency {
 impl Frequency {
     /// Creates new frequency from number of periods in one cycle and cycle time span.
     /// Uses non-zero time span for cycle.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `period` is zero.
+    #[must_use]
     pub fn new(count: u64, period: TimeSpan) -> Self {
         assert_ne!(period, TimeSpan::ZERO, "Frequency period cannot be zero");
 
-        let period = period.as_nanos().abs() as u64;
+        let period = period.as_nanos().unsigned_abs();
         let gcd = gcd(count, period);
         let count = count / gcd;
         let period_nanos = period / gcd;
 
-        match NonZeroU64::new(cycle_nanos) {
+        match NonZeroU64::new(period_nanos) {
             None => unreachable!(),
             Some(cycle) => Frequency { count, cycle },
         }
@@ -66,6 +71,8 @@ impl Frequency {
     /// Return number of elements in the given time span.
     #[inline]
     fn elements(&self, span: TimeSpan) -> Elements {
+        #![allow(clippy::cast_sign_loss)] // Sign loss is not possible due to check.
+
         debug_assert!(!span.is_negative(), "Span must not be negative");
 
         Elements(span.as_nanos() as u64 * self.count)
@@ -108,27 +115,14 @@ impl Frequency {
     /// Span that contains the given number of frequency elements.
     #[inline]
     fn span_fitting_elements(&self, span: Elements) -> Option<TimeSpan> {
-        match (span.0, self.count) {
-            (0, 0) => Some(TimeSpan::ZERO),
-            (_, 0) => None,
-            (span, count) => {
-                let nanos = (span + (count - 1)) / count;
-                debug_assert!(nanos <= i64::MAX as u64, "Nanos overflow");
-                Some(TimeSpan::new(nanos as i64))
-            }
-        }
-    }
+        #![allow(clippy::cast_possible_wrap)]
 
-    /// Span of time in frequency elements rounded down.
-    /// Avoid accumulating rounding errors.
-    #[inline(always)]
-    fn span_back(&self, span: Elements) -> Option<TimeSpan> {
         match (span.0, self.count) {
             (0, 0) => Some(TimeSpan::ZERO),
             (_, 0) => None,
             (span, count) => {
-                let nanos = span / count;
-                debug_assert!(nanos <= i64::MAX as u64, "Nanos overflow");
+                let nanos = span.div_ceil(count);
+                debug_assert!(i64::try_from(nanos).is_ok(), "Nanos overflow");
                 Some(TimeSpan::new(nanos as i64))
             }
         }

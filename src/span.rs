@@ -12,6 +12,8 @@ use core::{
     time::Duration,
 };
 
+const MAX_TIME_SPAN_STRING: usize = 48;
+
 /// An interval in between time stamps.
 /// This type is used to represent durations with nanosecond precision.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -27,7 +29,7 @@ impl TimeSpan {
         } else {
             if self.is_negative() {
                 f.write_str("-")?;
-            };
+            }
             let mut span = self.abs();
 
             let days = span / Self::DAY;
@@ -52,47 +54,47 @@ impl TimeSpan {
 
             if days > 0 || hours > 0 || minutes > 0 {
                 if days > 0 {
-                    write!(f, "{}d", days)?;
+                    write!(f, "{days}d")?;
                 }
 
                 if days > 0 {
-                    write!(f, "{:02}:", hours)?;
+                    write!(f, "{hours:02}:")?;
                 } else if hours > 0 {
-                    write!(f, "{}:", hours)?;
+                    write!(f, "{hours}:")?;
                 }
 
                 if days > 0 || hours > 0 {
-                    write!(f, "{:02}", minutes)?;
+                    write!(f, "{minutes:02}")?;
                 } else if minutes > 0 {
-                    write!(f, "{}", minutes)?;
+                    write!(f, "{minutes}")?;
                 }
 
                 if nanos > 0 {
-                    write!(f, ":{:02}.{:03}{:03}{:03}", seconds, millis, micros, nanos)
+                    write!(f, ":{seconds:02}.{millis:03}{micros:03}{nanos:03}")
                 } else if micros > 0 {
-                    write!(f, ":{:02}.{:03}{:03}", seconds, millis, micros)
+                    write!(f, ":{seconds:02}.{millis:03}{micros:03}")
                 } else if millis > 0 {
-                    write!(f, ":{:02}.{:03}", seconds, millis)
+                    write!(f, ":{seconds:02}.{millis:03}")
                 } else if seconds > 0 || days == 0 {
-                    write!(f, ":{:02}", seconds)
+                    write!(f, ":{seconds:02}")
                 } else {
                     Ok(())
                 }
             } else if seconds > 0 {
                 if nanos > 0 {
-                    write!(f, "{}.{:03}{:03}{:03}s", seconds, millis, micros, nanos)
+                    write!(f, "{seconds}.{millis:03}{micros:03}{nanos:03}s")
                 } else if micros > 0 {
-                    write!(f, "{}.{:03}{:03}s", seconds, millis, micros)
+                    write!(f, "{seconds}.{millis:03}{micros:03}s")
                 } else if millis > 0 {
-                    write!(f, "{}.{:03}s", seconds, millis)
+                    write!(f, "{seconds}.{millis:03}s")
                 } else {
                     write!(f, "{seconds}s")
                 }
             } else if millis > 0 {
                 if nanos > 0 {
-                    write!(f, "{}.{:03}{:03}ms", millis, micros, nanos)
+                    write!(f, "{millis}.{micros:03}{nanos:03}ms")
                 } else if micros > 0 {
-                    write!(f, "{}.{:03}ms", millis, micros)
+                    write!(f, "{millis}.{micros:03}ms")
                 } else {
                     write!(f, "{millis}ms")
                 }
@@ -103,7 +105,7 @@ impl TimeSpan {
                     write!(f, "{micros}us")
                 }
             } else {
-                write!(f, "{}ns", nanos)
+                write!(f, "{nanos}ns")
             }
         }
     }
@@ -145,10 +147,12 @@ impl TimeSpan {
     ///
     /// `&mut Self::DISPLAY_BUFFER` can be used as second argument.
     pub fn display_to_buffer(self, buf: &mut [u8; Self::MAX_DISPLAY_LENGTH]) -> &mut str {
+        #![allow(clippy::missing_panics_doc)] // False positive. Panics is not possible here.
+
         use std::io::Write;
         let mut write = &mut buf[..];
 
-        match write!(&mut write, "{}", self) {
+        match write!(&mut write, "{self}") {
             Ok(()) => {
                 let unused = write.len();
                 let used = buf.len() - unused;
@@ -236,8 +240,6 @@ impl std::error::Error for TimeSpanParseErr {
     }
 }
 
-const MAX_TIME_SPAN_STRING: usize = 48;
-
 struct Ranges {
     days: Option<Range<usize>>,
     hours: Option<Range<usize>>,
@@ -249,7 +251,7 @@ struct Ranges {
 
 impl Ranges {
     fn parse(self, s: &str) -> Result<TimeSpan, TimeSpanParseErr> {
-        let seconds: u64 = self
+        let seconds: i64 = self
             .seconds
             .map_or(Ok(0), |r| s[r].trim().parse())
             .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -258,7 +260,7 @@ impl Ranges {
             return Err(TimeSpanParseErr::SecondsOutOfBound { seconds });
         }
 
-        let minutes: u64 = self
+        let minutes: i64 = self
             .minutes
             .map_or(Ok(0), |r| s[r].trim().parse())
             .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -267,7 +269,7 @@ impl Ranges {
             return Err(TimeSpanParseErr::MinutesOutOfBound { minutes });
         }
 
-        let hours: u64 = self
+        let hours: i64 = self
             .hours
             .map_or(Ok(0), |r| s[r].trim().parse())
             .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -276,27 +278,27 @@ impl Ranges {
             return Err(TimeSpanParseErr::HoursOutOfBound { hours });
         }
 
-        let days: u64 = self
+        let days: i64 = self
             .days
             .map_or(Ok(0), |r| s[r].trim().parse())
             .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
 
-        let fract: u64 = self
+        let fract: i64 = self
             .fract
             .map_or(Ok(0), |r| s[r].trim().parse())
             .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
 
-        let nanos = if self.denom > 9 {
-            fract / 10u64.pow(self.denom - 9)
-        } else {
-            fract * 10u64.pow(9 - self.denom)
+        let micros = match self.denom {
+            denom @ 0..6 => fract * 10i64.pow(6 - denom),
+            6 => fract,
+            denom @ 7.. => fract / 10i64.pow(denom - 6),
         };
 
         Ok(days * TimeSpan::DAY
             + hours * TimeSpan::HOUR
             + minutes * TimeSpan::MINUTE
             + seconds * TimeSpan::SECOND
-            + nanos * TimeSpan::NANOSECOND)
+            + micros * TimeSpan::MICROSECOND)
     }
 }
 
@@ -317,75 +319,6 @@ impl FromStr for TimeSpan {
 
         let mut separators =
             s.match_indices(|c: char| !c.is_ascii_digit() && !c.is_ascii_whitespace());
-
-        struct Ranges {
-            days: Option<Range<usize>>,
-            hours: Option<Range<usize>>,
-            minutes: Option<Range<usize>>,
-            seconds: Option<Range<usize>>,
-            fract: Option<Range<usize>>,
-            denom: u32,
-        }
-
-        impl Ranges {
-            fn parse(self, s: &str) -> Result<TimeSpan, TimeSpanParseErr> {
-                let seconds: i64 = self
-                    .seconds
-                    .map(|r| s[r].trim().parse())
-                    .unwrap_or(Ok(0))
-                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
-
-                if self.minutes.is_some() && seconds > 59 {
-                    return Err(TimeSpanParseErr::SecondsOutOfBound { seconds });
-                }
-
-                let minutes: i64 = self
-                    .minutes
-                    .map(|r| s[r].trim().parse())
-                    .unwrap_or(Ok(0))
-                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
-
-                if self.hours.is_some() && minutes > 59 {
-                    return Err(TimeSpanParseErr::MinutesOutOfBound { minutes });
-                }
-
-                let hours: i64 = self
-                    .hours
-                    .map(|r| s[r].trim().parse())
-                    .unwrap_or(Ok(0))
-                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
-
-                if self.days.is_some() && hours > 23 {
-                    return Err(TimeSpanParseErr::HoursOutOfBound { hours });
-                }
-
-                let days: i64 = self
-                    .days
-                    .map(|r| s[r].trim().parse())
-                    .unwrap_or(Ok(0))
-                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
-
-                let fract: i64 = self
-                    .fract
-                    .map(|r| s[r].trim().parse())
-                    .unwrap_or(Ok(0))
-                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
-
-                let micros = if self.denom == 6 {
-                    fract
-                } else if self.denom > 6 {
-                    fract / 10i64.pow(self.denom - 6)
-                } else {
-                    fract * 10i64.pow(6 - self.denom)
-                };
-
-                Ok(days * TimeSpan::DAY
-                    + hours * TimeSpan::HOUR
-                    + minutes * TimeSpan::MINUTE
-                    + seconds * TimeSpan::SECOND
-                    + micros * TimeSpan::MICROSECOND)
-            }
-        }
 
         match separators.next() {
             Some((dh, "d" | "D" | "t" | "T")) => match separators.next() {
@@ -661,11 +594,13 @@ impl TimeSpan {
     /// Panics if the duration is out of bounds for `TimeSpan`.
     /// Which is longer than `i64::MAX` nanoseconds.
     #[inline]
+    #[must_use]
     pub fn from_duration(duration: Duration) -> Self {
         let nanos = duration.as_nanos();
-        assert!(i64::MAX as u128 >= nanos);
         TimeSpan {
-            nanos: nanos as i64,
+            nanos: nanos
+                .try_into()
+                .expect("Duration is out of bounds for TimeSpan"),
         }
     }
 }
@@ -677,6 +612,7 @@ impl TimeSpan {
     ///
     /// Panics if the time span is negative.
     #[inline]
+    #[must_use]
     pub fn into_duration(self) -> Duration {
         assert!(
             !self.is_negative(),
@@ -684,8 +620,14 @@ impl TimeSpan {
         );
 
         Duration::new(
-            self.as_seconds() as u64,
-            (self.as_nanos() % 1000000000) as u32,
+            #[allow(clippy::cast_sign_loss)]
+            {
+                self.as_seconds() as u64
+            },
+            #[allow(clippy::cast_sign_loss)]
+            {
+                (self.as_nanos() % 1_000_000_000) as u32
+            },
         )
     }
 }
@@ -704,6 +646,7 @@ impl TimeSpan {
         nanos: -i64::MAX,
     };
 
+    /// Maximal possible time span.
     pub const MAX: Self = TimeSpan {
         // Use i64::MAX to represent maximal possible time span.
         nanos: i64::MAX,
@@ -767,16 +710,18 @@ impl TimeSpan {
 
     /// One year.
     /// Closest value to the average length of a year on Earth.
-    pub const YEAR: Self = Self::SOLAR_YEAR;
+    pub const YEAR: Self = Self::GREGORIAN_YEAR;
 
     /// Constructs time span from number of nanoseconds.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new(nanos: i64) -> TimeSpan {
         TimeSpan { nanos }
     }
 
     /// Returns number of nanoseconds in this time span.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn as_nanos(self) -> i64 {
         self.nanos
     }
@@ -835,6 +780,8 @@ impl TimeSpan {
     #[inline]
     #[must_use]
     pub fn as_secs_f32(self) -> f32 {
+        #![allow(clippy::cast_precision_loss)]
+
         self.nanos as f32 / Self::SECOND.nanos as f32
     }
 
@@ -842,11 +789,13 @@ impl TimeSpan {
     #[inline]
     #[must_use]
     pub fn as_secs_f64(self) -> f64 {
+        #![allow(clippy::cast_precision_loss)]
+
         self.nanos as f64 / Self::SECOND.nanos as f64
     }
 
     /// Returns absolute value of this time span.
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn abs(self) -> TimeSpan {
         TimeSpan {
@@ -855,13 +804,14 @@ impl TimeSpan {
     }
 
     /// Returns true if this time span is negative.
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn is_negative(self) -> bool {
         self.nanos < 0
     }
 
-    #[inline(always)]
+    /// Returns sum of two time spans unless it overflows.
+    #[inline]
     #[must_use]
     pub const fn checked_add(self, span: TimeSpan) -> Option<TimeSpan> {
         match self.nanos.checked_add(span.nanos) {
@@ -870,7 +820,7 @@ impl TimeSpan {
         }
     }
 
-    /// Returns checked difference of two time spans.
+    /// Returns checked difference of two time spans unless it overflows.
     #[inline]
     #[must_use]
     pub const fn checked_sub(self, span: TimeSpan) -> Option<TimeSpan> {
@@ -880,7 +830,8 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns difference of two time spans unless it overflows.
+    #[inline]
     #[must_use]
     pub const fn checked_mul(self, value: i64) -> Option<TimeSpan> {
         match self.nanos.checked_mul(value) {
@@ -889,7 +840,8 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns quotient of time span and a scalar value unless it overflows or denominator is zero.
+    #[inline]
     #[must_use]
     pub const fn checked_div(self, value: i64) -> Option<TimeSpan> {
         match self.nanos.checked_div(value) {
@@ -898,7 +850,8 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns quotient of time span and a scalar value unless it overflows or denominator is zero.
+    #[inline]
     #[must_use]
     pub const fn checked_div_span(self, span: TimeSpan) -> Option<i64> {
         match self.nanos.checked_div(span.nanos) {
@@ -907,13 +860,15 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns quotient of time span divided by a non-zero time span.
+    #[inline]
     #[must_use]
     pub const fn div_span(self, span: TimeSpan) -> i64 {
         self.nanos / span.nanos
     }
 
-    #[inline(always)]
+    /// Returns remainder of time span divided by a scalar value unless it overflows or denominator is zero.
+    #[inline]
     #[must_use]
     pub const fn checked_rem(self, value: i64) -> Option<TimeSpan> {
         match self.nanos.checked_rem(value) {
@@ -922,14 +877,15 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns remainder of time span divided by a scalar value.
+    #[inline]
     #[must_use]
     pub const fn rem(self, value: i64) -> TimeSpan {
         let nanos = self.nanos % value;
         TimeSpan { nanos }
     }
 
-    /// Returns checked remainder of time span divided by a non-zero time span.
+    /// Returns remainder of time span divided by a non-zero time span unless it overflows or denominator is zero.
     #[inline]
     #[must_use]
     pub const fn checked_rem_span(self, span: TimeSpan) -> Option<TimeSpan> {
@@ -939,14 +895,16 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns remainder of time span divided by a non-zero time span.
+    #[inline]
     #[must_use]
     pub const fn rem_span(self, span: TimeSpan) -> TimeSpan {
         let nanos = self.nanos % span.nanos;
         TimeSpan { nanos }
     }
 
-    #[inline(always)]
+    /// Returns time span from hours, minutes and seconds.
+    #[inline]
     #[must_use]
     pub const fn hms(hours: i64, minutes: i64, seconds: i64) -> TimeSpan {
         TimeSpan {
@@ -956,7 +914,8 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns time span from days, hours, minutes and seconds.
+    #[inline]
     #[must_use]
     pub const fn dhms(days: i64, hours: i64, minutes: i64, seconds: i64) -> TimeSpan {
         TimeSpan {
@@ -967,11 +926,14 @@ impl TimeSpan {
         }
     }
 
-    #[inline(always)]
+    /// Returns time span from years, days, hours, minutes and seconds.
+    ///
+    /// This function uses gregorian year length of 365.2425 days.
+    #[inline]
     #[must_use]
     pub const fn ydhms(years: i64, days: i64, hours: i64, minutes: i64, seconds: i64) -> TimeSpan {
         TimeSpan {
-            nanos: years * Self::YEAR.nanos
+            nanos: years * Self::GREGORIAN_YEAR.nanos
                 + days * Self::DAY.nanos
                 + hours * Self::HOUR.nanos
                 + minutes * Self::MINUTE.nanos
@@ -1014,7 +976,7 @@ impl SubAssign<TimeSpan> for TimeSpan {
 impl Div<TimeSpan> for TimeSpan {
     type Output = i64;
 
-    #[inline(always)]
+    #[inline]
     fn div(self, rhs: TimeSpan) -> i64 {
         self.checked_div_span(rhs)
             .expect("divide by zero error when dividing span by span")
@@ -1041,7 +1003,7 @@ impl RemAssign<TimeSpan> for TimeSpan {
 impl Mul<i64> for TimeSpan {
     type Output = Self;
 
-    #[inline(always)]
+    #[inline]
     fn mul(self, rhs: i64) -> Self {
         self.checked_mul(rhs)
             .expect("overflow when multiplying span by scalar")
@@ -1058,7 +1020,7 @@ impl Mul<TimeSpan> for i64 {
 }
 
 impl MulAssign<i64> for TimeSpan {
-    #[inline(always)]
+    #[inline]
     fn mul_assign(&mut self, rhs: i64) {
         *self = *self * rhs;
     }
@@ -1067,7 +1029,7 @@ impl MulAssign<i64> for TimeSpan {
 impl Div<i64> for TimeSpan {
     type Output = TimeSpan;
 
-    #[inline(always)]
+    #[inline]
     fn div(self, rhs: i64) -> Self {
         self.checked_div(rhs)
             .expect("divide by zero error when dividing span by scalar")
@@ -1075,7 +1037,7 @@ impl Div<i64> for TimeSpan {
 }
 
 impl DivAssign<i64> for TimeSpan {
-    #[inline(always)]
+    #[inline]
     fn div_assign(&mut self, rhs: i64) {
         *self = *self / rhs;
     }
@@ -1084,7 +1046,7 @@ impl DivAssign<i64> for TimeSpan {
 impl Rem<i64> for TimeSpan {
     type Output = TimeSpan;
 
-    #[inline(always)]
+    #[inline]
     fn rem(self, rhs: i64) -> Self {
         self.checked_rem(rhs)
             .expect("divide by zero error when dividing span by scalar")
@@ -1092,7 +1054,7 @@ impl Rem<i64> for TimeSpan {
 }
 
 impl RemAssign<i64> for TimeSpan {
-    #[inline(always)]
+    #[inline]
     fn rem_assign(&mut self, rhs: i64) {
         *self = *self % rhs;
     }

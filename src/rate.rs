@@ -112,7 +112,13 @@ impl ClockRate {
 
     /// Advances the clock by given time span and returns `ClockStep` result.
     /// with new time stamp and time span since previous step.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given time span is negative.
     pub fn step(&mut self, span: TimeSpan) -> ClockStep {
+        #![allow(clippy::cast_sign_loss)] // Sign loss is not possible due to check.
+
         assert!(!span.is_negative(), "Negative time span is not allowed");
 
         let nanos = span.as_nanos() as u64;
@@ -131,7 +137,11 @@ impl ClockRate {
         let nom_nanos_left = (nom_nanos - self.until_next) % self.denom;
         self.until_next = self.denom.get() - nom_nanos_left;
 
+        debug_assert!(clock_nanos <= u64::MAX >> 1, "Clock nanoseconds overflow");
+
+        #[allow(clippy::cast_possible_wrap)]
         let clock_span = TimeSpan::new(clock_nanos as i64);
+
         self.now += clock_span;
 
         ClockStep {
@@ -156,13 +166,7 @@ impl ClockRate {
 
         match NonZeroU64::new(denom * period) {
             None => unreachable!(),
-            Some(cycle) => FrequencyTicker::new(
-                Frequency {
-                    count,
-                    cycle,
-                },
-                self.now,
-            ),
+            Some(cycle) => FrequencyTicker::new(Frequency { count, cycle }, self.now),
         }
     }
 }
@@ -224,6 +228,8 @@ fn ftor(value: f32) -> (u64, u64) {
 #[test]
 fn test_large() {
     fn check_ftor(v: f32) {
+        #![allow(clippy::cast_precision_loss)]
+
         let (n, d) = ftor(v);
         let e = (v - (n as f32 / d as f32)).abs();
         assert!(e < 1e-6);
