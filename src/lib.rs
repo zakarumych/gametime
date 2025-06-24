@@ -41,7 +41,7 @@ pub mod global_reference;
 pub use crate::{
     freq::{Frequency, FrequencyNumExt, FrequencyTicker, FrequencyTickerIter},
     rate::ClockRate,
-    span::{NonZeroTimeSpan, NonZeroTimeSpanNumExt, TimeSpan, TimeSpanNumExt},
+    span::{TimeSpan, TimeSpanNumExt},
     stamp::TimeStamp,
 };
 
@@ -52,17 +52,17 @@ pub use crate::clock::{Clock, ClockStep};
 pub use crate::clock::GlobalClock;
 
 #[doc(hidden)]
-pub trait U64ORF64 {}
+pub trait I64ORF64 {}
 
-impl U64ORF64 for u64 {}
-impl U64ORF64 for f64 {}
+impl I64ORF64 for i64 {}
+impl I64ORF64 for f64 {}
 
 /// Cast helper for [`timespan!`] macro.
 #[doc(hidden)]
 #[inline]
 pub const fn __as<T>(a: T, _: &T) -> T
 where
-    T: U64ORF64,
+    T: I64ORF64,
 {
     a
 }
@@ -89,7 +89,7 @@ macro_rules! timespan {
         let minutes = $m * $crate::TimeSpan::MINUTE.as_nanos();
         let seconds = $s * $crate::__as($crate::TimeSpan::SECOND.as_nanos() as _, &$s);
 
-        $crate::TimeSpan::new(hours + minutes + seconds as u64)
+        $crate::TimeSpan::new(hours + minutes + seconds as i64)
     }};
 
     ($h:literal h) => { $crate::timespan!($h hours) };
@@ -98,13 +98,13 @@ macro_rules! timespan {
 
     ($h:literal hours) => {{
         let hours = $h * $crate::__as($crate::TimeSpan::HOUR.as_nanos() as _, &$h);
-        $crate::TimeSpan::new(hours as u64)
+        $crate::TimeSpan::new(hours as i64)
     }};
 
     ($m:literal : $s:literal) => {{
         let minutes = $m * $crate::TimeSpan::MINUTE.as_nanos();
         let seconds = $s * $crate::__as($crate::TimeSpan::SECOND.as_nanos() as _, &$s);
-        $crate::TimeSpan::new(minutes + seconds as u64)
+        $crate::TimeSpan::new(minutes + seconds as i64)
     }};
 
     ($m:literal m) => { $crate::timespan!($m minutes) };
@@ -113,7 +113,7 @@ macro_rules! timespan {
 
     ($m:literal minutes) => {{
         let minutes = $m * $crate::__as($crate::TimeSpan::MINUTE.as_nanos() as _, &$m);
-        $crate::TimeSpan::new(minutes as u64)
+        $crate::TimeSpan::new(minutes as i64)
     }};
 
     ($s:literal s) => { $crate::timespan!($s seconds) };
@@ -122,7 +122,7 @@ macro_rules! timespan {
 
     ($s:literal seconds) => {{
         let seconds = $s * $crate::__as($crate::TimeSpan::SECOND.as_nanos() as _, &$s);
-        $crate::TimeSpan::new(seconds as u64)
+        $crate::TimeSpan::new(seconds as i64)
     }};
 
     ($(1)?year) => { $crate::TimeSpan::YEAR };
@@ -157,12 +157,9 @@ const TEST_SPANS: [TimeSpan; 7] = [
 #[test]
 fn test_timespan_macro() {
     assert_eq!(TEST_SPANS[0], TimeSpan::DAY);
-    assert_eq!(
-        TEST_SPANS[1],
-        TimeSpan::HOUR * 2 + TimeSpan::MINUTE * 3 + TimeSpan::SECOND
-    );
+    assert_eq!(TEST_SPANS[1], TimeSpan::hms(2, 3, 1));
     assert_eq!(TEST_SPANS[2], TimeSpan::HOUR * 3);
-    assert_eq!(TEST_SPANS[3], TimeSpan::MINUTE * 2 + TimeSpan::SECOND * 3);
+    assert_eq!(TEST_SPANS[3], TimeSpan::hms(0, 2, 3));
     assert_eq!(TEST_SPANS[4], TimeSpan::MINUTE * 3);
     assert_eq!(TEST_SPANS[5], TimeSpan::SECOND * 42);
 }

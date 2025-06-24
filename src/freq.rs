@@ -1,13 +1,8 @@
 //! Contains types and functions to work with frequencies.
 
-use core::{convert::TryInto, iter::FusedIterator, num::NonZeroU64, ops};
+use core::{iter::FusedIterator, num::NonZeroU64, ops};
 
-use crate::{
-    gcd,
-    span::{NonZeroTimeSpan, TimeSpan},
-    stamp::TimeStamp,
-    ClockStep,
-};
+use crate::{gcd, span::TimeSpan, stamp::TimeStamp, ClockStep};
 
 #[cfg(feature = "serde")]
 use serde::ser::SerializeTupleStruct;
@@ -24,23 +19,14 @@ pub struct Frequency {
 
 impl Frequency {
     /// Creates new frequency from number of periods in one cycle and cycle time span.
-    /// Returns `None` if cycle is zero.
-    #[inline]
-    #[must_use]
-    pub fn try_new(count: u64, cycle: TimeSpan) -> Option<Self> {
-        cycle
-            .try_into()
-            .ok()
-            .map(|cycle| Frequency::new(count, cycle))
-    }
-
-    /// Creates new frequency from number of periods in one cycle and cycle time span.
     /// Uses non-zero time span for cycle.
-    #[must_use]
-    pub fn new(count: u64, cycle: NonZeroTimeSpan) -> Self {
-        let gcd = gcd(count, cycle.as_nanos().get());
+    pub fn new(count: u64, period: TimeSpan) -> Self {
+        assert_ne!(period, TimeSpan::ZERO, "Frequency period cannot be zero");
+
+        let period = period.as_nanos().abs() as u64;
+        let gcd = gcd(count, period);
         let count = count / gcd;
-        let cycle_nanos = cycle.as_nanos().get() / gcd;
+        let period_nanos = period / gcd;
 
         match NonZeroU64::new(cycle_nanos) {
             None => unreachable!(),
@@ -52,35 +38,37 @@ impl Frequency {
     #[inline]
     #[must_use]
     pub fn from_hz(value: u64) -> Self {
-        Frequency::new(value, NonZeroTimeSpan::SECOND)
+        Frequency::new(value, TimeSpan::SECOND)
     }
 
     /// Creates frequency from number of `KiloHertz`.
     #[inline]
     #[must_use]
     pub fn from_khz(value: u64) -> Self {
-        Frequency::new(value, NonZeroTimeSpan::MILLISECOND)
+        Frequency::new(value, TimeSpan::MILLISECOND)
     }
 
     /// Creates frequency from number of `MegaHertz`.
     #[inline]
     #[must_use]
     pub fn from_mhz(value: u64) -> Self {
-        Frequency::new(value, NonZeroTimeSpan::MICROSECOND)
+        Frequency::new(value, TimeSpan::MICROSECOND)
     }
 
     /// Creates frequency from number of `GigaHertz`.
     #[inline]
     #[must_use]
     pub fn from_ghz(value: u64) -> Self {
-        Frequency::new(value, NonZeroTimeSpan::NANOSECOND)
+        Frequency::new(value, TimeSpan::NANOSECOND)
     }
 
     /// Element is a nanosecond divided by count of periods in one cycle.
     /// Return number of elements in the given time span.
     #[inline]
     fn elements(&self, span: TimeSpan) -> Elements {
-        Elements(span.as_nanos() * self.count)
+        debug_assert!(!span.is_negative(), "Span must not be negative");
+
+        Elements(span.as_nanos() as u64 * self.count)
     }
 
     /// Returns the number of periods in the given time span.
@@ -122,20 +110,29 @@ impl Frequency {
     fn span_fitting_elements(&self, span: Elements) -> Option<TimeSpan> {
         match (span.0, self.count) {
             (0, 0) => Some(TimeSpan::ZERO),
-            (_, 0) => None, // Element is infinite
-            (span, count) => Some(TimeSpan::new(span.div_ceil(count))),
+            (_, 0) => None,
+            (span, count) => {
+                let nanos = (span + (count - 1)) / count;
+                debug_assert!(nanos <= i64::MAX as u64, "Nanos overflow");
+                Some(TimeSpan::new(nanos as i64))
+            }
         }
     }
 
-    // /// Span contained within the frequency elements.
-    // #[inline]
-    // fn span_fits_in_elements(&self, span: Elements) -> Option<TimeSpan> {
-    //     match (span.0, self.count) {
-    //         (0, 0) => Some(TimeSpan::ZERO),
-    //         (_, 0) => None, // Element is infinite
-    //         (span, count) => Some(TimeSpan::new(span / count)),
-    //     }
-    // }
+    /// Span of time in frequency elements rounded down.
+    /// Avoid accumulating rounding errors.
+    #[inline(always)]
+    fn span_back(&self, span: Elements) -> Option<TimeSpan> {
+        match (span.0, self.count) {
+            (0, 0) => Some(TimeSpan::ZERO),
+            (_, 0) => None,
+            (span, count) => {
+                let nanos = span / count;
+                debug_assert!(nanos <= i64::MAX as u64, "Nanos overflow");
+                Some(TimeSpan::new(nanos as i64))
+            }
+        }
+    }
 
     /// Returns new ticker with this frequency and given start time stamp.
     #[inline]
@@ -491,14 +488,11 @@ impl FrequencyNumExt for u64 {
 
 #[test]
 fn test_freq_ticker() {
-    use crate::span::NonZeroTimeSpanNumExt;
+    use crate::span::TimeSpanNumExt;
 
-    let mut ticker = FrequencyTicker::new(
-        Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
-        TimeStamp::start(),
-    );
+    let mut ticker = FrequencyTicker::new(Frequency::new(3, 10.nanoseconds()), TimeStamp::start());
 
-    assert_eq!(ticker.tick_count(TimeSpan::NANOSECOND * 10), 3);
+    assert_eq!(ticker.tick_count(10.nanoseconds()), 3);
 
     let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 
@@ -511,17 +505,17 @@ fn test_freq_ticker() {
 
 #[test]
 fn test_freq_ticker_delay() {
-    use crate::span::NonZeroTimeSpanNumExt;
+    use crate::span::TimeSpanNumExt;
 
     const DELAY: u64 = 12;
 
     let mut ticker = FrequencyTicker::with_delay(
-        Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
+        Frequency::new(3, 10.nanoseconds()),
         DELAY,
         TimeStamp::start(),
     );
 
-    assert_eq!(0, ticker.tick_count(TimeSpan::NANOSECOND * 40));
+    assert_eq!(0, ticker.tick_count(40.nanoseconds()));
 
     let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 
@@ -534,12 +528,9 @@ fn test_freq_ticker_delay() {
 
 #[test]
 fn test_freq_ticker_next_tick() {
-    use crate::span::NonZeroTimeSpanNumExt;
+    use crate::span::TimeSpanNumExt;
 
-    let mut ticker = FrequencyTicker::new(
-        Frequency::new(3, NonZeroU64::new(10).unwrap().nanoseconds()),
-        TimeStamp::start(),
-    );
+    let mut ticker = FrequencyTicker::new(Frequency::new(3, 10.nanoseconds()), TimeStamp::start());
 
     let ticks = [0, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 

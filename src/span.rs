@@ -6,9 +6,7 @@
 //!
 
 use core::{
-    convert::TryFrom,
     fmt::{self, Debug, Display},
-    num::{NonZeroU64, TryFromIntError},
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Range, Rem, RemAssign, Sub, SubAssign},
     str::FromStr,
     time::Duration,
@@ -19,7 +17,7 @@ use core::{
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TimeSpan {
-    nanos: u64,
+    nanos: i64,
 }
 
 impl TimeSpan {
@@ -27,97 +25,94 @@ impl TimeSpan {
         if self == Self::ZERO {
             f.write_str("0")
         } else {
-            let mut span = self;
-            if span >= Self::DAY {
-                let days = span / Self::DAY;
-                span %= Self::DAY;
+            if self.is_negative() {
+                f.write_str("-")?;
+            };
+            let mut span = self.abs();
 
-                let hours = span / Self::HOUR;
-                span %= Self::HOUR;
+            let days = span / Self::DAY;
+            span %= Self::DAY;
 
-                let minutes = span / Self::MINUTE;
-                span %= Self::MINUTE;
+            let hours = span / Self::HOUR;
+            span %= Self::HOUR;
 
-                let seconds = span / Self::SECOND;
-                span %= Self::SECOND;
+            let minutes = span / Self::MINUTE;
+            span %= Self::MINUTE;
 
-                let millis = span / Self::MILLISECOND;
+            let seconds = span / Self::SECOND;
+            span %= Self::SECOND;
 
-                if millis > 0 {
-                    write!(f, "{days}d{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
-                } else if seconds > 0 {
-                    write!(f, "{days}d{hours:02}:{minutes:02}:{seconds:02}")
-                } else {
-                    write!(f, "{days}d{hours:02}:{minutes:02}")
+            let millis = span / Self::MILLISECOND;
+            span %= Self::MILLISECOND;
+
+            let micros = span / Self::MICROSECOND;
+            span %= Self::MICROSECOND;
+
+            let nanos = span / Self::NANOSECOND;
+
+            if days > 0 || hours > 0 || minutes > 0 {
+                if days > 0 {
+                    write!(f, "{}d", days)?;
                 }
-            } else if span >= Self::HOUR {
-                let hours = span / Self::HOUR;
-                span %= Self::HOUR;
 
-                let minutes = span / Self::MINUTE;
-                span %= Self::MINUTE;
-
-                let seconds = span / Self::SECOND;
-                span %= Self::SECOND;
-
-                let millis = span / Self::MILLISECOND;
-                if millis > 0 {
-                    write!(f, "{hours}:{minutes:02}:{seconds:02}.{millis:03}")
-                } else {
-                    write!(f, "{hours}:{minutes:02}:{seconds:02}")
+                if days > 0 {
+                    write!(f, "{:02}:", hours)?;
+                } else if hours > 0 {
+                    write!(f, "{}:", hours)?;
                 }
-            } else if span >= Self::MINUTE {
-                let minutes = span / Self::MINUTE;
-                span %= Self::MINUTE;
 
-                let seconds = span / Self::SECOND;
-                span %= Self::SECOND;
-
-                let millis = span / Self::MILLISECOND;
-                if millis > 0 {
-                    write!(f, "{minutes}:{seconds:02}.{millis:03}")
-                } else {
-                    write!(f, "{minutes}:{seconds:02}")
+                if days > 0 || hours > 0 {
+                    write!(f, "{:02}", minutes)?;
+                } else if minutes > 0 {
+                    write!(f, "{}", minutes)?;
                 }
-            } else if span >= Self::SECOND {
-                let seconds = span / Self::SECOND;
-                span %= Self::SECOND;
 
-                let millis = span / Self::MILLISECOND;
-                if millis > 0 {
-                    write!(f, "{seconds}.{millis:03}s")
+                if nanos > 0 {
+                    write!(f, ":{:02}.{:03}{:03}{:03}", seconds, millis, micros, nanos)
+                } else if micros > 0 {
+                    write!(f, ":{:02}.{:03}{:03}", seconds, millis, micros)
+                } else if millis > 0 {
+                    write!(f, ":{:02}.{:03}", seconds, millis)
+                } else if seconds > 0 || days == 0 {
+                    write!(f, ":{:02}", seconds)
+                } else {
+                    Ok(())
+                }
+            } else if seconds > 0 {
+                if nanos > 0 {
+                    write!(f, "{}.{:03}{:03}{:03}s", seconds, millis, micros, nanos)
+                } else if micros > 0 {
+                    write!(f, "{}.{:03}{:03}s", seconds, millis, micros)
+                } else if millis > 0 {
+                    write!(f, "{}.{:03}s", seconds, millis)
                 } else {
                     write!(f, "{seconds}s")
                 }
-            } else if span >= Self::MILLISECOND {
-                let millis = span / Self::MILLISECOND;
-                span %= Self::MILLISECOND;
-
-                let micros = span / Self::MICROSECOND;
-                if micros > 0 {
-                    write!(f, "{millis}.{micros:03}ms")
+            } else if millis > 0 {
+                if nanos > 0 {
+                    write!(f, "{}.{:03}{:03}ms", millis, micros, nanos)
+                } else if micros > 0 {
+                    write!(f, "{}.{:03}ms", millis, micros)
                 } else {
                     write!(f, "{millis}ms")
                 }
-            } else if span >= Self::MICROSECOND {
-                let micros = span / Self::MICROSECOND;
-                span %= Self::MICROSECOND;
-
-                let nanos = span / Self::NANOSECOND;
+            } else if micros > 0 {
                 if nanos > 0 {
                     write!(f, "{micros}.{nanos:03}us")
                 } else {
                     write!(f, "{micros}us")
                 }
             } else {
-                let nanos = span / Self::NANOSECOND;
-                write!(f, "{nanos}ns")
+                write!(f, "{}ns", nanos)
             }
         }
     }
 
     fn fmt_full(self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut span = self;
+        if self.is_negative() {
+            f.write_str("-")?;
+        }
+        let mut span = self.abs();
         let days = span / Self::DAY;
         span %= Self::DAY;
         let hours = span / Self::HOUR;
@@ -137,6 +132,31 @@ impl TimeSpan {
     fn fmt_nanos(self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}ns", self.nanos)
     }
+
+    /// Longest possible time span in displayed format is
+    /// `-106751d23:59:59.999999999`
+    const MAX_DISPLAY_LENGTH: usize = 26;
+
+    /// Buffer enough to hold any time span in displayed format.
+    pub const DISPLAY_BUFFER: [u8; Self::MAX_DISPLAY_LENGTH] = [0; Self::MAX_DISPLAY_LENGTH];
+
+    /// Formats this time span into a buffer.
+    /// Returns a string slice that contains the formatted time span.
+    ///
+    /// `&mut Self::DISPLAY_BUFFER` can be used as second argument.
+    pub fn display_to_buffer(self, buf: &mut [u8; Self::MAX_DISPLAY_LENGTH]) -> &mut str {
+        use std::io::Write;
+        let mut write = &mut buf[..];
+
+        match write!(&mut write, "{}", self) {
+            Ok(()) => {
+                let unused = write.len();
+                let used = buf.len() - unused;
+                str::from_utf8_mut(&mut buf[..used]).expect("Valid UTF-8 written to buffer")
+            }
+            Err(_) => unreachable!("Buffer is large enough to hold any time span"),
+        }
+    }
 }
 
 impl Debug for TimeSpan {
@@ -144,7 +164,7 @@ impl Debug for TimeSpan {
         if f.alternate() {
             self.fmt_nanos(f)
         } else {
-            (*self).fmt(f)
+            Self::fmt(*self, f)
         }
     }
 }
@@ -154,7 +174,7 @@ impl Display for TimeSpan {
         if f.alternate() {
             self.fmt_full(f)
         } else {
-            (*self).fmt(f)
+            Self::fmt(*self, f)
         }
     }
 }
@@ -167,9 +187,9 @@ pub enum TimeSpanParseErr {
     UnexpectedDelimiter { delim: char, pos: usize },
     UnexpectedEndOfString,
     UnexpectedSuffix,
-    HoursOutOfBound { hours: u64 },
-    MinutesOutOfBound { minutes: u64 },
-    SecondsOutOfBound { seconds: u64 },
+    HoursOutOfBound { hours: i64 },
+    MinutesOutOfBound { minutes: i64 },
+    SecondsOutOfBound { seconds: i64 },
 }
 
 impl fmt::Display for TimeSpanParseErr {
@@ -295,11 +315,81 @@ impl FromStr for TimeSpan {
             return Err(TimeSpanParseErr::StringTooLarge { len: s.len() });
         }
 
-        let mut seps = s.match_indices(|c: char| !c.is_ascii_digit() && !c.is_ascii_whitespace());
+        let mut separators =
+            s.match_indices(|c: char| !c.is_ascii_digit() && !c.is_ascii_whitespace());
 
-        match seps.next() {
-            Some((dh, "d" | "D" | "t" | "T")) => match seps.next() {
-                Some((hm, ":")) => match seps.next() {
+        struct Ranges {
+            days: Option<Range<usize>>,
+            hours: Option<Range<usize>>,
+            minutes: Option<Range<usize>>,
+            seconds: Option<Range<usize>>,
+            fract: Option<Range<usize>>,
+            denom: u32,
+        }
+
+        impl Ranges {
+            fn parse(self, s: &str) -> Result<TimeSpan, TimeSpanParseErr> {
+                let seconds: i64 = self
+                    .seconds
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                if self.minutes.is_some() && seconds > 59 {
+                    return Err(TimeSpanParseErr::SecondsOutOfBound { seconds });
+                }
+
+                let minutes: i64 = self
+                    .minutes
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                if self.hours.is_some() && minutes > 59 {
+                    return Err(TimeSpanParseErr::MinutesOutOfBound { minutes });
+                }
+
+                let hours: i64 = self
+                    .hours
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                if self.days.is_some() && hours > 23 {
+                    return Err(TimeSpanParseErr::HoursOutOfBound { hours });
+                }
+
+                let days: i64 = self
+                    .days
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                let fract: i64 = self
+                    .fract
+                    .map(|r| s[r].trim().parse())
+                    .unwrap_or(Ok(0))
+                    .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
+
+                let micros = if self.denom == 6 {
+                    fract
+                } else if self.denom > 6 {
+                    fract / 10i64.pow(self.denom - 6)
+                } else {
+                    fract * 10i64.pow(6 - self.denom)
+                };
+
+                Ok(days * TimeSpan::DAY
+                    + hours * TimeSpan::HOUR
+                    + minutes * TimeSpan::MINUTE
+                    + seconds * TimeSpan::SECOND
+                    + micros * TimeSpan::MICROSECOND)
+            }
+        }
+
+        match separators.next() {
+            Some((dh, "d" | "D" | "t" | "T")) => match separators.next() {
+                Some((hm, ":")) => match separators.next() {
                     None => Ranges {
                         days: Some(0..dh),
                         hours: Some(dh + 1..hm),
@@ -308,7 +398,7 @@ impl FromStr for TimeSpan {
                         fract: None,
                         denom: 0,
                     },
-                    Some((ms, ":")) => match seps.next() {
+                    Some((ms, ":")) => match separators.next() {
                         None => Ranges {
                             days: Some(0..dh),
                             hours: Some(dh + 1..hm),
@@ -318,7 +408,7 @@ impl FromStr for TimeSpan {
                             denom: 0,
                         },
                         Some((sf, ".")) => {
-                            if let Some((pos, delim)) = seps.next() {
+                            if let Some((pos, delim)) = separators.next() {
                                 return Err(TimeSpanParseErr::UnexpectedDelimiter {
                                     delim: delim.chars().next().unwrap(),
                                     pos,
@@ -358,10 +448,10 @@ impl FromStr for TimeSpan {
                     return Err(TimeSpanParseErr::UnexpectedEndOfString);
                 }
             },
-            Some((hms, ":")) => match seps.next() {
-                Some((ms, ":")) => match seps.next() {
+            Some((hms, ":")) => match separators.next() {
+                Some((ms, ":")) => match separators.next() {
                     Some((sf, ".")) => {
-                        if let Some((pos, delim)) = seps.next() {
+                        if let Some((pos, delim)) = separators.next() {
                             return Err(TimeSpanParseErr::UnexpectedDelimiter {
                                 delim: delim.chars().next().unwrap(),
                                 pos,
@@ -392,7 +482,7 @@ impl FromStr for TimeSpan {
                     }
                 },
                 Some((sf, ".")) => {
-                    if let Some((pos, delim)) = seps.next() {
+                    if let Some((pos, delim)) = separators.next() {
                         return Err(TimeSpanParseErr::UnexpectedDelimiter {
                             delim: delim.chars().next().unwrap(),
                             pos,
@@ -424,7 +514,7 @@ impl FromStr for TimeSpan {
             },
 
             Some((sf, ".")) => {
-                if let Some((pos, delim)) = seps.next() {
+                if let Some((pos, delim)) = separators.next() {
                     return Err(TimeSpanParseErr::UnexpectedDelimiter {
                         delim: delim.chars().next().unwrap(),
                         pos,
@@ -445,7 +535,7 @@ impl FromStr for TimeSpan {
                     return Err(TimeSpanParseErr::UnexpectedSuffix);
                 }
 
-                let seconds: u64 = s[..suffix]
+                let seconds: i64 = s[..suffix]
                     .trim()
                     .parse()
                     .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -457,7 +547,7 @@ impl FromStr for TimeSpan {
                     return Err(TimeSpanParseErr::UnexpectedSuffix);
                 }
 
-                let millis: u64 = s[..suffix]
+                let millis: i64 = s[..suffix]
                     .trim()
                     .parse()
                     .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -469,7 +559,7 @@ impl FromStr for TimeSpan {
                     return Err(TimeSpanParseErr::UnexpectedSuffix);
                 }
 
-                let micros: u64 = s[..suffix]
+                let micros: i64 = s[..suffix]
                     .trim()
                     .parse()
                     .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -477,7 +567,7 @@ impl FromStr for TimeSpan {
             }
 
             None => {
-                let seconds: u64 = s
+                let seconds: i64 = s
                     .trim()
                     .parse()
                     .map_err(|source| TimeSpanParseErr::IntParseError { source })?;
@@ -504,9 +594,12 @@ impl serde::Serialize for TimeSpan {
     {
         // Serialize in pretty format for human readable serializer
         if serializer.is_human_readable() {
-            serializer.serialize_str(&self.to_string())
+            let mut buf = Self::DISPLAY_BUFFER;
+            let s = self.display_to_buffer(&mut buf);
+
+            serializer.serialize_str(s)
         } else {
-            serializer.serialize_u64(self.nanos)
+            serializer.serialize_i64(self.nanos)
         }
     }
 }
@@ -526,19 +619,22 @@ impl<'de> serde::Deserialize<'de> for TimeSpan {
                 fmt.write_str("String with encoded time span or integer representing nanoseconds")
             }
 
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
-                Ok(TimeSpan { nanos: v })
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if v > i64::MAX as u64 {
+                    return Err(E::custom("Time span is too large to fit into i64"));
+                }
+
+                Ok(TimeSpan { nanos: v as i64 })
             }
 
             fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                if v < 0 {
-                    Err(E::custom("TimeSpan cannot be negative"))
-                } else {
-                    Ok(TimeSpan { nanos: v as u64 })
-                }
+                Ok(TimeSpan { nanos: v })
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -557,22 +653,40 @@ impl<'de> serde::Deserialize<'de> for TimeSpan {
     }
 }
 
-impl From<Duration> for TimeSpan {
+impl TimeSpan {
+    /// Converts [`Duration`] into [`TimeSpan`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the duration is out of bounds for `TimeSpan`.
+    /// Which is longer than `i64::MAX` nanoseconds.
     #[inline]
-    fn from(duration: Duration) -> Self {
+    pub fn from_duration(duration: Duration) -> Self {
         let nanos = duration.as_nanos();
-        let nanos = u64::try_from(nanos).expect("Duration is too large to fit in TimeSpan");
-
+        assert!(i64::MAX as u128 >= nanos);
         TimeSpan {
-            nanos,
+            nanos: nanos as i64,
         }
     }
 }
 
-impl From<TimeSpan> for Duration {
+impl TimeSpan {
+    /// Converts [`TimeSpan`] into [`Duration`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the time span is negative.
     #[inline]
-    fn from(span: TimeSpan) -> Self {
-        Duration::new(span.as_seconds(), (span.as_nanos() % 1_000_000_000) as u32)
+    pub fn into_duration(self) -> Duration {
+        assert!(
+            !self.is_negative(),
+            "Cannot convert negative TimeSpan into Duration"
+        );
+
+        Duration::new(
+            self.as_seconds() as u64,
+            (self.as_nanos() % 1000000000) as u32,
+        )
     }
 }
 
@@ -581,6 +695,19 @@ impl TimeSpan {
     ///
     /// Represents duration between equal time points.
     pub const ZERO: Self = TimeSpan { nanos: 0 };
+
+    /// Minimal possible time span.
+    pub const MIN: Self = TimeSpan {
+        // Use negative i64::MAX to represent minimal possible time span.
+        // Which is equal to i64::MIN + 1.
+        // This is to avoid overflow when negating or taking absolute value.
+        nanos: -i64::MAX,
+    };
+
+    pub const MAX: Self = TimeSpan {
+        // Use i64::MAX to represent maximal possible time span.
+        nanos: i64::MAX,
+    };
 
     /// One nanosecond span.
     /// Minimal possible time span supported by this type.
@@ -643,65 +770,63 @@ impl TimeSpan {
     pub const YEAR: Self = Self::SOLAR_YEAR;
 
     /// Constructs time span from number of nanoseconds.
-    #[inline]
-    #[must_use]
-    pub const fn new(nanos: u64) -> TimeSpan {
+    #[inline(always)]
+    pub const fn new(nanos: i64) -> TimeSpan {
         TimeSpan { nanos }
     }
 
     /// Returns number of nanoseconds in this time span.
-    #[inline]
-    #[must_use]
-    pub const fn as_nanos(self) -> u64 {
+    #[inline(always)]
+    pub const fn as_nanos(self) -> i64 {
         self.nanos
     }
 
     /// Returns number of microseconds this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_micros(&self) -> u64 {
+    pub const fn as_micros(self) -> i64 {
         self.nanos / Self::MICROSECOND.nanos
     }
 
     /// Returns number of whole milliseconds this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_millis(&self) -> u64 {
+    pub const fn as_millis(self) -> i64 {
         self.nanos / Self::MILLISECOND.nanos
     }
 
     /// Returns number of whole seconds this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_seconds(&self) -> u64 {
+    pub const fn as_seconds(self) -> i64 {
         self.nanos / Self::SECOND.nanos
     }
 
     /// Returns number of whole minutes this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_minutes(&self) -> u64 {
+    pub const fn as_minutes(self) -> i64 {
         self.nanos / Self::MINUTE.nanos
     }
 
     /// Returns number of whole hours this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_hours(&self) -> u64 {
+    pub const fn as_hours(self) -> i64 {
         self.nanos / Self::HOUR.nanos
     }
 
     /// Returns number of whole days this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_days(&self) -> u64 {
+    pub const fn as_days(self) -> i64 {
         self.nanos / Self::DAY.nanos
     }
 
     /// Returns number of whole weeks this value represents.
     #[inline]
     #[must_use]
-    pub const fn as_weeks(&self) -> u64 {
+    pub const fn as_weeks(self) -> i64 {
         self.nanos / Self::WEEK.nanos
     }
 
@@ -709,23 +834,34 @@ impl TimeSpan {
     /// This function should be used for small-ish spans when high precision is not required.
     #[inline]
     #[must_use]
-    pub fn as_secs_f32(&self) -> f32 {
-        #![allow(clippy::cast_precision_loss)] // Precision loss is acceptable here.
-
+    pub fn as_secs_f32(self) -> f32 {
         self.nanos as f32 / Self::SECOND.nanos as f32
     }
 
     /// Returns number of seconds as high precision floating point value.
     #[inline]
     #[must_use]
-    pub fn as_secs_f64(&self) -> f64 {
-        #![allow(clippy::cast_precision_loss)] // Precision loss is acceptable here.
-
+    pub fn as_secs_f64(self) -> f64 {
         self.nanos as f64 / Self::SECOND.nanos as f64
     }
 
-    /// Returns checked sum of two time spans.
-    #[inline]
+    /// Returns absolute value of this time span.
+    #[inline(always)]
+    #[must_use]
+    pub fn abs(self) -> TimeSpan {
+        TimeSpan {
+            nanos: self.nanos.abs(),
+        }
+    }
+
+    /// Returns true if this time span is negative.
+    #[inline(always)]
+    #[must_use]
+    pub fn is_negative(self) -> bool {
+        self.nanos < 0
+    }
+
+    #[inline(always)]
     #[must_use]
     pub const fn checked_add(self, span: TimeSpan) -> Option<TimeSpan> {
         match self.nanos.checked_add(span.nanos) {
@@ -744,66 +880,52 @@ impl TimeSpan {
         }
     }
 
-    /// Returns checked multiplication of time span by a number.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn checked_mul(self, value: u64) -> Option<TimeSpan> {
+    pub const fn checked_mul(self, value: i64) -> Option<TimeSpan> {
         match self.nanos.checked_mul(value) {
             None => None,
             Some(nanos) => Some(TimeSpan { nanos }),
         }
     }
 
-    /// Returns checked division of time span by a number.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn checked_div(self, value: u64) -> Option<TimeSpan> {
+    pub const fn checked_div(self, value: i64) -> Option<TimeSpan> {
         match self.nanos.checked_div(value) {
             None => None,
             Some(nanos) => Some(TimeSpan { nanos }),
         }
     }
 
-    /// Returns the result of dividing this time span by a non-zero value.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn div(self, value: NonZeroU64) -> TimeSpan {
-        let nanos = self.nanos / value.get();
-        TimeSpan { nanos }
-    }
-
-    /// Returns the result of dividing this time span by a non-zero time span.
-    #[inline]
-    #[must_use]
-    pub const fn checked_div_span(self, span: TimeSpan) -> Option<u64> {
+    pub const fn checked_div_span(self, span: TimeSpan) -> Option<i64> {
         match self.nanos.checked_div(span.nanos) {
             None => None,
             Some(value) => Some(value),
         }
     }
 
-    /// Returns the result of dividing this time span by a non-zero time span.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn div_span(self, span: NonZeroTimeSpan) -> u64 {
-        self.nanos / span.nanos.get()
+    pub const fn div_span(self, span: TimeSpan) -> i64 {
+        self.nanos / span.nanos
     }
 
-    /// Returns checked remainder of time span divided by a number.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn checked_rem(self, value: u64) -> Option<TimeSpan> {
+    pub const fn checked_rem(self, value: i64) -> Option<TimeSpan> {
         match self.nanos.checked_rem(value) {
             None => None,
             Some(nanos) => Some(TimeSpan { nanos }),
         }
     }
 
-    /// Returns the remainder of time span divided by a non-zero value.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn rem(self, value: NonZeroU64) -> TimeSpan {
-        let nanos = self.nanos % value.get();
+    pub const fn rem(self, value: i64) -> TimeSpan {
+        let nanos = self.nanos % value;
         TimeSpan { nanos }
     }
 
@@ -817,18 +939,16 @@ impl TimeSpan {
         }
     }
 
-    /// Returns the remainder of time span divided by a non-zero time span.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn rem_span(self, span: NonZeroTimeSpan) -> TimeSpan {
-        let nanos = self.nanos % span.nanos.get();
+    pub const fn rem_span(self, span: TimeSpan) -> TimeSpan {
+        let nanos = self.nanos % span.nanos;
         TimeSpan { nanos }
     }
 
-    /// Constructs time span from number of days, hours, minutes and seconds.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn hms(hours: u64, minutes: u64, seconds: u64) -> TimeSpan {
+    pub const fn hms(hours: i64, minutes: i64, seconds: i64) -> TimeSpan {
         TimeSpan {
             nanos: hours * Self::HOUR.nanos
                 + minutes * Self::MINUTE.nanos
@@ -836,10 +956,9 @@ impl TimeSpan {
         }
     }
 
-    /// Constructs time span from number of days, hours, minutes and seconds.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn dhms(days: u64, hours: u64, minutes: u64, seconds: u64) -> TimeSpan {
+    pub const fn dhms(days: i64, hours: i64, minutes: i64, seconds: i64) -> TimeSpan {
         TimeSpan {
             nanos: days * Self::DAY.nanos
                 + hours * Self::HOUR.nanos
@@ -847,306 +966,17 @@ impl TimeSpan {
                 + seconds * Self::SECOND.nanos,
         }
     }
-}
 
-/// An interval in between different time stamps.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct NonZeroTimeSpan {
-    nanos: NonZeroU64,
-}
-
-impl From<NonZeroTimeSpan> for TimeSpan {
-    #[inline]
-    fn from(span: NonZeroTimeSpan) -> Self {
+    #[inline(always)]
+    #[must_use]
+    pub const fn ydhms(years: i64, days: i64, hours: i64, minutes: i64, seconds: i64) -> TimeSpan {
         TimeSpan {
-            nanos: span.nanos.get(),
+            nanos: years * Self::YEAR.nanos
+                + days * Self::DAY.nanos
+                + hours * Self::HOUR.nanos
+                + minutes * Self::MINUTE.nanos
+                + seconds * Self::SECOND.nanos,
         }
-    }
-}
-
-impl TryFrom<TimeSpan> for NonZeroTimeSpan {
-    type Error = TryFromIntError;
-
-    #[inline]
-    fn try_from(span: TimeSpan) -> Result<Self, TryFromIntError> {
-        match NonZeroU64::try_from(span.nanos) {
-            Err(err) => Err(err),
-            Ok(nanos) => Ok(NonZeroTimeSpan { nanos }),
-        }
-    }
-}
-
-impl NonZeroTimeSpan {
-    /// One nanosecond span.
-    /// Minimal possible time span supported by this type.
-    pub const NANOSECOND: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(1).unwrap() },
-    };
-
-    /// One microsecond span.
-    pub const MICROSECOND: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(1_000).unwrap() },
-    };
-
-    /// One millisecond span.
-    pub const MILLISECOND: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(1_000_000).unwrap() },
-    };
-
-    /// One second span.
-    pub const SECOND: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(1_000_000_000).unwrap() },
-    };
-
-    /// One minute span.
-    pub const MINUTE: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(60_000_000_000).unwrap() },
-    };
-
-    /// One hour span.
-    pub const HOUR: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(3_600_000_000_000).unwrap() },
-    };
-
-    /// One day span.
-    pub const DAY: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(86_400_000_000_000).unwrap() },
-    };
-
-    /// One week.
-    /// Defined as 7 days.
-    pub const WEEK: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(604_800_000_000_000).unwrap() },
-    };
-
-    /// One Julian year.
-    /// Average year length in Julian calendar.
-    /// Defined as 365.25 days.
-    pub const JULIAN_YEAR: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(31_557_600_000_000_000).unwrap() },
-    };
-
-    /// One Gregorian year.
-    /// Average year length in Gregorian calendar.
-    /// 3 days per 400 years shorter than Julian year.
-    /// Defined as 365.2425 days.
-    pub const GREGORIAN_YEAR: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(31_556_952_000_000).unwrap() },
-    };
-
-    /// One solar year (tropical year).
-    /// Defined as 365.24219 days.
-    pub const SOLAR_YEAR: Self = NonZeroTimeSpan {
-        nanos: const { NonZeroU64::new(31_556_925_216_000_000).unwrap() },
-    };
-
-    /// One year.
-    /// Closest value to the average length of a year on Earth.
-    pub const YEAR: Self = Self::SOLAR_YEAR;
-
-    /// Constructs time span from number of nanoseconds.
-    #[inline]
-    #[must_use]
-    pub const fn new(nanos: NonZeroU64) -> NonZeroTimeSpan {
-        NonZeroTimeSpan { nanos }
-    }
-    /// Returns number of nanoseconds in this time span.
-    #[inline]
-    #[must_use]
-    pub const fn as_nanos(self) -> NonZeroU64 {
-        self.nanos
-    }
-
-    /// Returns number of microseconds this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_micros(&self) -> u64 {
-        self.nanos.get() / Self::MICROSECOND.nanos.get()
-    }
-
-    /// Returns number of whole milliseconds this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_millis(&self) -> u64 {
-        self.nanos.get() / Self::MILLISECOND.nanos.get()
-    }
-
-    /// Returns number of whole seconds this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_seconds(&self) -> u64 {
-        self.nanos.get() / Self::SECOND.nanos.get()
-    }
-
-    /// Returns number of whole minutes this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_minutes(&self) -> u64 {
-        self.nanos.get() / Self::MINUTE.nanos.get()
-    }
-
-    /// Returns number of whole hours this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_hours(&self) -> u64 {
-        self.nanos.get() / Self::HOUR.nanos.get()
-    }
-
-    /// Returns number of whole days this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_days(&self) -> u64 {
-        self.nanos.get() / Self::DAY.nanos.get()
-    }
-
-    /// Returns number of whole weeks this value represents.
-    #[inline]
-    #[must_use]
-    pub const fn as_weeks(&self) -> u64 {
-        self.nanos.get() / Self::WEEK.nanos.get()
-    }
-
-    /// Returns number of seconds as floating point value.
-    /// This function should be used for small-ish spans when high precision is not required.
-    #[inline]
-    #[must_use]
-    pub fn as_secs_f32(&self) -> f32 {
-        #![allow(clippy::cast_precision_loss)] // Precision loss is acceptable here.
-
-        self.nanos.get() as f32 / Self::SECOND.nanos.get() as f32
-    }
-
-    /// Returns number of seconds as high precision floating point value.
-    #[inline]
-    #[must_use]
-    pub fn as_secs_f64(&self) -> f64 {
-        #![allow(clippy::cast_precision_loss)] // Precision loss is acceptable here.
-
-        self.nanos.get() as f64 / Self::SECOND.nanos.get() as f64
-    }
-
-    /// Returns checked sum of two time spans.
-    #[inline]
-    #[must_use]
-    pub const fn checked_add(self, span: TimeSpan) -> Option<NonZeroTimeSpan> {
-        match self.nanos.get().checked_add(span.nanos) {
-            None => None,
-            Some(nanos) => Some(NonZeroTimeSpan {
-                nanos: unsafe {
-                    // # Safety
-                    // Sum of non-zero and non-negative is non-zero
-                    NonZeroU64::new_unchecked(nanos)
-                },
-            }),
-        }
-    }
-
-    /// Returns checked difference of two time spans.
-    #[inline]
-    #[must_use]
-    pub const fn checked_sub(self, span: TimeSpan) -> Option<TimeSpan> {
-        match self.nanos.get().checked_sub(span.nanos) {
-            None => None,
-            Some(nanos) => Some(TimeSpan { nanos }),
-        }
-    }
-
-    /// Returns checked multiplication of time span by a number.
-    #[inline]
-    #[must_use]
-    pub const fn checked_mul(self, value: u64) -> Option<TimeSpan> {
-        match self.nanos.get().checked_mul(value) {
-            None => None,
-            Some(nanos) => Some(TimeSpan { nanos }),
-        }
-    }
-
-    /// Returns checked multiplication of time span by a non-zero number.
-    #[inline]
-    #[must_use]
-    pub const fn checked_mul_non_zero(self, value: NonZeroU64) -> Option<NonZeroTimeSpan> {
-        match self.nanos.get().checked_mul(value.get()) {
-            None => None,
-            Some(nanos) => Some(NonZeroTimeSpan {
-                nanos: unsafe {
-                    // # Safety
-                    // a > 0, b > 0 hence a * b > 0
-                    NonZeroU64::new_unchecked(nanos)
-                },
-            }),
-        }
-    }
-
-    /// Returns checked division of time span by a number.
-    #[inline]
-    #[must_use]
-    pub const fn checked_div(self, value: u64) -> Option<TimeSpan> {
-        match self.nanos.get().checked_div(value) {
-            None => None,
-            Some(nanos) => Some(TimeSpan { nanos }),
-        }
-    }
-
-    /// Returns the result of dividing this time span by a non-zero value.
-    #[inline]
-    #[must_use]
-    pub const fn div(self, value: NonZeroU64) -> TimeSpan {
-        let nanos = self.nanos.get() / value.get();
-        TimeSpan { nanos }
-    }
-
-    /// Returns the result of dividing this time span by a non-zero time span.
-    #[inline]
-    #[must_use]
-    pub const fn checked_div_span(self, span: TimeSpan) -> Option<u64> {
-        match self.nanos.get().checked_div(span.nanos) {
-            None => None,
-            Some(value) => Some(value),
-        }
-    }
-
-    /// Returns the result of dividing this time span by a non-zero time span.
-    #[inline]
-    #[must_use]
-    pub const fn div_span(self, span: NonZeroTimeSpan) -> u64 {
-        self.nanos.get() / span.nanos.get()
-    }
-
-    /// Returns checked remainder of time span divided by a number.
-    #[inline]
-    #[must_use]
-    pub const fn checked_rem(self, value: u64) -> Option<TimeSpan> {
-        match self.nanos.get().checked_rem(value) {
-            None => None,
-            Some(nanos) => Some(TimeSpan { nanos }),
-        }
-    }
-
-    /// Returns the remainder of time span divided by a non-zero value.
-    #[inline]
-    #[must_use]
-    pub const fn rem(self, value: NonZeroU64) -> TimeSpan {
-        let nanos = self.nanos.get() % value.get();
-        TimeSpan { nanos }
-    }
-
-    /// Returns checked remainder of time span divided by a non-zero time span.
-    #[inline]
-    #[must_use]
-    pub const fn checked_rem_span(self, span: TimeSpan) -> Option<TimeSpan> {
-        match self.nanos.get().checked_rem(span.nanos) {
-            None => None,
-            Some(nanos) => Some(TimeSpan { nanos }),
-        }
-    }
-
-    /// Returns the remainder of time span divided by a non-zero time span.
-    #[inline]
-    #[must_use]
-    pub const fn rem_span(self, span: NonZeroTimeSpan) -> TimeSpan {
-        let nanos = self.nanos.get() % span.nanos.get();
-        TimeSpan { nanos }
     }
 }
 
@@ -1159,54 +989,8 @@ impl Add<TimeSpan> for TimeSpan {
     }
 }
 
-impl Add<TimeSpan> for NonZeroTimeSpan {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: TimeSpan) -> Self {
-        self.checked_add(rhs).expect("overflow when adding spans")
-    }
-}
-
-impl Add<NonZeroTimeSpan> for TimeSpan {
-    type Output = NonZeroTimeSpan;
-
-    #[inline]
-    fn add(self, rhs: NonZeroTimeSpan) -> NonZeroTimeSpan {
-        rhs.checked_add(self).expect("overflow when adding spans")
-    }
-}
-
-impl Add<NonZeroTimeSpan> for NonZeroTimeSpan {
-    type Output = NonZeroTimeSpan;
-
-    #[inline]
-    fn add(self, rhs: NonZeroTimeSpan) -> Self {
-        self.checked_add(rhs.into())
-            .expect("overflow when adding spans")
-    }
-}
-
 impl AddAssign<TimeSpan> for TimeSpan {
     fn add_assign(&mut self, rhs: TimeSpan) {
-        *self = *self + rhs;
-    }
-}
-
-impl AddAssign<NonZeroTimeSpan> for TimeSpan {
-    fn add_assign(&mut self, rhs: NonZeroTimeSpan) {
-        *self = (*self + rhs).into();
-    }
-}
-
-impl AddAssign<TimeSpan> for NonZeroTimeSpan {
-    fn add_assign(&mut self, rhs: TimeSpan) {
-        *self = *self + rhs;
-    }
-}
-
-impl AddAssign<NonZeroTimeSpan> for NonZeroTimeSpan {
-    fn add_assign(&mut self, rhs: Self) {
         *self = *self + rhs;
     }
 }
@@ -1221,83 +1005,19 @@ impl Sub<TimeSpan> for TimeSpan {
     }
 }
 
-impl Sub<TimeSpan> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn sub(self, rhs: TimeSpan) -> TimeSpan {
-        self.checked_sub(rhs)
-            .expect("overflow when subtracting spans")
-    }
-}
-
-impl Sub<NonZeroTimeSpan> for TimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn sub(self, rhs: NonZeroTimeSpan) -> TimeSpan {
-        rhs.checked_sub(self)
-            .expect("overflow when subtracting spans")
-    }
-}
-
-impl Sub<NonZeroTimeSpan> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn sub(self, rhs: NonZeroTimeSpan) -> TimeSpan {
-        self.checked_sub(rhs.into())
-            .expect("overflow when subtracting spans")
-    }
-}
-
 impl SubAssign<TimeSpan> for TimeSpan {
     fn sub_assign(&mut self, rhs: TimeSpan) {
         *self = *self - rhs;
     }
 }
 
-impl SubAssign<NonZeroTimeSpan> for TimeSpan {
-    fn sub_assign(&mut self, rhs: NonZeroTimeSpan) {
-        *self = *self - rhs;
-    }
-}
-
 impl Div<TimeSpan> for TimeSpan {
-    type Output = u64;
+    type Output = i64;
 
-    #[inline]
-    fn div(self, rhs: TimeSpan) -> u64 {
+    #[inline(always)]
+    fn div(self, rhs: TimeSpan) -> i64 {
         self.checked_div_span(rhs)
             .expect("divide by zero error when dividing span by span")
-    }
-}
-
-impl Div<NonZeroTimeSpan> for TimeSpan {
-    type Output = u64;
-
-    #[inline]
-    fn div(self, rhs: NonZeroTimeSpan) -> u64 {
-        self.div_span(rhs)
-    }
-}
-
-impl Div<TimeSpan> for NonZeroTimeSpan {
-    type Output = u64;
-
-    #[inline]
-    fn div(self, rhs: TimeSpan) -> u64 {
-        self.checked_div_span(rhs)
-            .expect("divide by zero error when dividing span by span")
-    }
-}
-
-impl Div<NonZeroTimeSpan> for NonZeroTimeSpan {
-    type Output = u64;
-
-    #[inline]
-    fn div(self, rhs: NonZeroTimeSpan) -> u64 {
-        self.div_span(rhs)
     }
 }
 
@@ -1318,52 +1038,17 @@ impl RemAssign<TimeSpan> for TimeSpan {
     }
 }
 
-impl Rem<NonZeroTimeSpan> for TimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn rem(self, rhs: NonZeroTimeSpan) -> TimeSpan {
-        self.rem_span(rhs)
-    }
-}
-
-impl RemAssign<NonZeroTimeSpan> for TimeSpan {
-    #[inline]
-    fn rem_assign(&mut self, rhs: NonZeroTimeSpan) {
-        *self = *self % rhs;
-    }
-}
-
-impl Rem<TimeSpan> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn rem(self, rhs: TimeSpan) -> TimeSpan {
-        self.checked_rem_span(rhs)
-            .expect("divide by zero error when dividing span by span")
-    }
-}
-
-impl Rem<NonZeroTimeSpan> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn rem(self, rhs: NonZeroTimeSpan) -> TimeSpan {
-        self.rem_span(rhs)
-    }
-}
-
-impl Mul<u64> for TimeSpan {
+impl Mul<i64> for TimeSpan {
     type Output = Self;
 
-    #[inline]
-    fn mul(self, rhs: u64) -> Self {
+    #[inline(always)]
+    fn mul(self, rhs: i64) -> Self {
         self.checked_mul(rhs)
             .expect("overflow when multiplying span by scalar")
     }
 }
 
-impl Mul<TimeSpan> for u64 {
+impl Mul<TimeSpan> for i64 {
     type Output = TimeSpan;
 
     #[inline]
@@ -1372,178 +1057,44 @@ impl Mul<TimeSpan> for u64 {
     }
 }
 
-impl MulAssign<u64> for TimeSpan {
-    #[inline]
-    fn mul_assign(&mut self, rhs: u64) {
+impl MulAssign<i64> for TimeSpan {
+    #[inline(always)]
+    fn mul_assign(&mut self, rhs: i64) {
         *self = *self * rhs;
     }
 }
 
-impl Div<u64> for TimeSpan {
+impl Div<i64> for TimeSpan {
     type Output = TimeSpan;
 
-    #[inline]
-    fn div(self, rhs: u64) -> Self {
+    #[inline(always)]
+    fn div(self, rhs: i64) -> Self {
         self.checked_div(rhs)
             .expect("divide by zero error when dividing span by scalar")
     }
 }
 
-impl DivAssign<u64> for TimeSpan {
-    #[inline]
-    fn div_assign(&mut self, rhs: u64) {
+impl DivAssign<i64> for TimeSpan {
+    #[inline(always)]
+    fn div_assign(&mut self, rhs: i64) {
         *self = *self / rhs;
     }
 }
 
-impl Rem<u64> for TimeSpan {
+impl Rem<i64> for TimeSpan {
     type Output = TimeSpan;
 
-    #[inline]
-    fn rem(self, rhs: u64) -> Self {
+    #[inline(always)]
+    fn rem(self, rhs: i64) -> Self {
         self.checked_rem(rhs)
             .expect("divide by zero error when dividing span by scalar")
     }
 }
 
-impl RemAssign<u64> for TimeSpan {
-    #[inline]
-    fn rem_assign(&mut self, rhs: u64) {
+impl RemAssign<i64> for TimeSpan {
+    #[inline(always)]
+    fn rem_assign(&mut self, rhs: i64) {
         *self = *self % rhs;
-    }
-}
-
-impl Mul<u64> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn mul(self, rhs: u64) -> TimeSpan {
-        self.checked_mul(rhs)
-            .expect("overflow when multiplying span by scalar")
-    }
-}
-
-impl Mul<NonZeroTimeSpan> for u64 {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn mul(self, rhs: NonZeroTimeSpan) -> TimeSpan {
-        rhs * self
-    }
-}
-
-impl Div<u64> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn div(self, rhs: u64) -> TimeSpan {
-        self.checked_div(rhs)
-            .expect("divide by zero error when dividing span by scalar")
-    }
-}
-
-impl Rem<u64> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn rem(self, rhs: u64) -> TimeSpan {
-        self.checked_rem(rhs)
-            .expect("divide by zero error when dividing span by scalar")
-    }
-}
-
-impl Mul<NonZeroU64> for TimeSpan {
-    type Output = Self;
-
-    #[inline]
-    fn mul(self, rhs: NonZeroU64) -> Self {
-        self.checked_mul(rhs.get())
-            .expect("overflow when multiplying span by scalar")
-    }
-}
-
-impl Mul<TimeSpan> for NonZeroU64 {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn mul(self, rhs: TimeSpan) -> TimeSpan {
-        rhs * self
-    }
-}
-
-impl MulAssign<NonZeroU64> for TimeSpan {
-    #[inline]
-    fn mul_assign(&mut self, rhs: NonZeroU64) {
-        *self = *self * rhs;
-    }
-}
-
-impl Div<NonZeroU64> for TimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn div(self, rhs: NonZeroU64) -> Self {
-        self.div(rhs)
-    }
-}
-
-impl DivAssign<NonZeroU64> for TimeSpan {
-    #[inline]
-    fn div_assign(&mut self, rhs: NonZeroU64) {
-        *self = *self / rhs;
-    }
-}
-
-impl Rem<NonZeroU64> for TimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn rem(self, rhs: NonZeroU64) -> Self {
-        self.rem(rhs)
-    }
-}
-
-impl RemAssign<NonZeroU64> for TimeSpan {
-    #[inline]
-    fn rem_assign(&mut self, rhs: NonZeroU64) {
-        *self = *self % rhs;
-    }
-}
-
-impl Mul<NonZeroU64> for NonZeroTimeSpan {
-    type Output = NonZeroTimeSpan;
-
-    #[inline]
-    fn mul(self, rhs: NonZeroU64) -> NonZeroTimeSpan {
-        self.checked_mul_non_zero(rhs)
-            .expect("overflow when multiplying span by scalar")
-    }
-}
-
-impl Mul<NonZeroTimeSpan> for NonZeroU64 {
-    type Output = NonZeroTimeSpan;
-
-    #[inline]
-    fn mul(self, rhs: NonZeroTimeSpan) -> NonZeroTimeSpan {
-        rhs * self
-    }
-}
-
-impl Div<NonZeroU64> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn div(self, rhs: NonZeroU64) -> TimeSpan {
-        self.div(rhs)
-    }
-}
-
-impl Rem<NonZeroU64> for NonZeroTimeSpan {
-    type Output = TimeSpan;
-
-    #[inline]
-    fn rem(self, rhs: NonZeroU64) -> TimeSpan {
-        self.rem(rhs)
     }
 }
 
@@ -1571,30 +1122,6 @@ pub trait TimeSpanNumExt {
     fn days(self) -> TimeSpan;
 }
 
-/// This trait adds methods to non-zero integers to convert values into `NonZeroTimeSpan`s.
-pub trait NonZeroTimeSpanNumExt {
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of nanoseconds.
-    fn nanoseconds(self) -> NonZeroTimeSpan;
-
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of microseconds.
-    fn microseconds(self) -> NonZeroTimeSpan;
-
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of milliseconds.
-    fn milliseconds(self) -> NonZeroTimeSpan;
-
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of seconds.
-    fn seconds(self) -> NonZeroTimeSpan;
-
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of minutes.
-    fn minutes(self) -> NonZeroTimeSpan;
-
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of hours.
-    fn hours(self) -> NonZeroTimeSpan;
-
-    /// Convert integer value into `NonZeroTimeSpan` with that amount of days.
-    fn days(self) -> NonZeroTimeSpan;
-}
-
 macro_rules! impl_for_int {
     ($($int:ty)*) => {
         $(
@@ -1606,81 +1133,37 @@ macro_rules! impl_for_int {
         impl TimeSpanNumExt for $int {
             #[inline]
             fn nanoseconds(self) -> TimeSpan {
-                TimeSpan::NANOSECOND * u64::from(self)
+                TimeSpan::NANOSECOND * i64::from(self)
             }
             #[inline]
             fn microseconds(self) -> TimeSpan {
-                TimeSpan::MICROSECOND * u64::from(self)
+                TimeSpan::MICROSECOND * i64::from(self)
             }
             #[inline]
             fn milliseconds(self) -> TimeSpan {
-                TimeSpan::MILLISECOND * u64::from(self)
+                TimeSpan::MILLISECOND * i64::from(self)
             }
             #[inline]
             fn seconds(self) -> TimeSpan {
-                TimeSpan::SECOND * u64::from(self)
+                TimeSpan::SECOND * i64::from(self)
             }
             #[inline]
             fn minutes(self) -> TimeSpan {
-                TimeSpan::MINUTE * u64::from(self)
+                TimeSpan::MINUTE * i64::from(self)
             }
             #[inline]
             fn hours(self) -> TimeSpan {
-                TimeSpan::HOUR * u64::from(self)
+                TimeSpan::HOUR * i64::from(self)
             }
             #[inline]
             fn days(self) -> TimeSpan {
-                TimeSpan::DAY * u64::from(self)
+                TimeSpan::DAY * i64::from(self)
             }
         }
     };
 }
 
-impl_for_int!(u64);
-
-macro_rules! impl_for_nonzero_int {
-($($int:ty)*) => {
-        $(
-            impl_for_nonzero_int!(@ $int);
-        )*
-    };
-
-    (@ $int:ty) => {
-
-        impl NonZeroTimeSpanNumExt for $int {
-            #[inline]
-            fn nanoseconds(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::NANOSECOND * NonZeroU64::from(self)
-            }
-            #[inline]
-            fn microseconds(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::MICROSECOND * NonZeroU64::from(self)
-            }
-            #[inline]
-            fn milliseconds(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::MILLISECOND * NonZeroU64::from(self)
-            }
-            #[inline]
-            fn seconds(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::SECOND * NonZeroU64::from(self)
-            }
-            #[inline]
-            fn minutes(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::MINUTE * NonZeroU64::from(self)
-            }
-            #[inline]
-            fn hours(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::HOUR * NonZeroU64::from(self)
-            }
-            #[inline]
-            fn days(self) -> NonZeroTimeSpan {
-                NonZeroTimeSpan::DAY * NonZeroU64::from(self)
-            }
-        }
-    };
-}
-
-impl_for_nonzero_int!(NonZeroU64);
+impl_for_int!(i64);
 
 #[test]
 fn test_span_print() {

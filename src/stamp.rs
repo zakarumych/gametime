@@ -4,14 +4,14 @@
 use core::{
     fmt,
     num::NonZeroU64,
-    ops::{Add, AddAssign, Sub},
+    ops::{Add, AddAssign, Sub, SubAssign},
     time::Duration,
 };
 
 use crate::span::TimeSpan;
 
 /// A fixed point in time relative to a reference point in time.
-/// 
+///
 /// The reference point depends on how the time stamp is created:
 /// - `Clock` return time stamp relative to the clock start.
 /// - `TimeStamp::now` returns time stamp relative to the global reference point initialized by the first call to this function.
@@ -57,7 +57,7 @@ impl TimeStamp {
     #[must_use]
     pub const fn never() -> Self {
         TimeStamp {
-            nanos: unsafe { NonZeroU64::new_unchecked(u64::MAX) },
+            nanos: unsafe { NonZeroU64::new_unchecked(i64::MAX as u64) },
         }
     }
 
@@ -79,6 +79,8 @@ impl TimeStamp {
     #[inline]
     #[must_use]
     pub unsafe fn new_unchecked(nanos: u64) -> Self {
+        debug_assert!(nanos < i64::MAX as u64, "Nanos overflow");
+
         TimeStamp {
             nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
         }
@@ -86,7 +88,7 @@ impl TimeStamp {
 
     /// Returns time stamp corresponding to "now".
     /// Uses global reference point in time initialized by first call to this function.
-    /// 
+    ///
     /// This function is only available if `global_reference` feature is enabled.
     #[cfg(feature = "global_reference")]
     #[inline]
@@ -104,7 +106,7 @@ impl TimeStamp {
         #![allow(clippy::cast_possible_truncation)] // Truncation is not possible due to check.
 
         let nanos = duration.as_nanos();
-        if nanos > u128::from(u64::MAX - 1) {
+        if nanos > (i64::MAX - 1) as u128 {
             return None;
         }
         Some(TimeStamp {
@@ -114,8 +116,8 @@ impl TimeStamp {
 
     /// Constructs time stamp from duration observed by the process.
     ///
-    /// Given that duration is measured by the process, it is impossible to overflow
-    /// as it would mean that process runs for more than 500 years.
+    /// Given that duration is measured by the process, it is practically impossible to overflow
+    /// as it would mean that process runs for more than 200 years.
     ///
     /// # Panics
     ///
@@ -123,26 +125,31 @@ impl TimeStamp {
     #[inline]
     #[must_use]
     pub fn from_observed_duration(duration: Duration) -> Self {
-        match TimeStamp::from_duration(duration) {
-            Some(stamp) => stamp,
-            None => impressive(),
+        let nanos = duration.as_nanos();
+        if nanos > (i64::MAX - 1) as u128 {
+            impressive();
+        }
+        TimeStamp {
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos as u64 + 1) },
         }
     }
 
-    /// Returns time span elapsed since `earlier` point in time.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub const fn checked_elapsed_since(self, earlier: TimeStamp) -> Option<TimeSpan> {
-        match self.nanos.get().checked_sub(earlier.nanos.get()) {
+    pub const fn checked_elapsed_since(self, since: TimeStamp) -> Option<TimeSpan> {
+        let lhs = self.nanos.get() as i64;
+        let rhs = since.nanos.get() as i64;
+
+        match lhs.checked_sub(rhs) {
             None => None,
-            Some(nanos) => Some(TimeSpan::new(nanos)),
+            Some(diff) => Some(TimeSpan::new(diff)),
         }
     }
 
     /// Returns time span elapsed since `earlier` point in time.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if `earlier` time stamp is greater than `self` time stamp.
     #[inline]
     #[must_use]
@@ -155,7 +162,12 @@ impl TimeStamp {
     #[inline]
     #[must_use]
     pub fn elapsed_since_start(self) -> TimeSpan {
-        TimeSpan::new(self.nanos.get() - 1)
+        assert!(
+            self.nanos.get() <= i64::MAX as u64 + 1,
+            "TimeStamp overflow"
+        );
+
+        TimeSpan::new((self.nanos.get() - 1) as i64)
     }
 
     /// Returns time span elapsed since start point in time.
@@ -165,15 +177,31 @@ impl TimeStamp {
         self.nanos.get() - 1
     }
 
-    /// Returns checked time stamp after adding given time span.
-    #[inline]
-    #[must_use]
-    pub fn checked_add(self, span: TimeSpan) -> Option<TimeStamp> {
-        let nanos = self.nanos.get().checked_add(span.as_nanos())?;
+    #[inline(always)]
+    pub fn add_span(self, span: TimeSpan) -> Option<TimeStamp> {
+        let nanos = (self.nanos.get() as i64).checked_add(span.as_nanos())?;
+
+        if nanos < 1 {
+            return None; // TimeStamp cannot be zero or negative
+        }
 
         Some(TimeStamp {
             // Safety: a > 0, b >= 0 hence a + b > 0
-            nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos as u64) },
+        })
+    }
+
+    #[inline(always)]
+    pub fn sub_span(self, span: TimeSpan) -> Option<TimeStamp> {
+        let nanos = (self.nanos.get() as i64).checked_sub(span.as_nanos())?;
+
+        if nanos < 1 {
+            return None; // TimeStamp cannot be zero or negative
+        }
+
+        Some(TimeStamp {
+            // Safety: a > 0, b >= 0 hence a + b > 0
+            nanos: unsafe { NonZeroU64::new_unchecked(nanos as u64) },
         })
     }
 }
@@ -183,16 +211,8 @@ impl Add<TimeSpan> for TimeStamp {
 
     #[inline]
     fn add(self, rhs: TimeSpan) -> Self {
-        let nanos = self
-            .nanos
-            .get()
-            .checked_add(rhs.as_nanos())
-            .expect("overflow when adding time span to time stamp");
-
-        TimeStamp {
-            // Safety: a > 0, b >= 0 hence a + b > 0
-            nanos: unsafe { NonZeroU64::new_unchecked(nanos) },
-        }
+        self.add_span(rhs)
+            .expect("overflow when adding time span to time stamp")
     }
 }
 
@@ -200,6 +220,23 @@ impl AddAssign<TimeSpan> for TimeStamp {
     #[inline]
     fn add_assign(&mut self, rhs: TimeSpan) {
         *self = *self + rhs;
+    }
+}
+
+impl Sub<TimeSpan> for TimeStamp {
+    type Output = TimeStamp;
+
+    #[inline(always)]
+    fn sub(self, rhs: TimeSpan) -> Self {
+        self.sub_span(rhs)
+            .expect("overflow when adding time span to time stamp")
+    }
+}
+
+impl SubAssign<TimeSpan> for TimeStamp {
+    #[inline(always)]
+    fn sub_assign(&mut self, rhs: TimeSpan) {
+        *self = *self - rhs;
     }
 }
 
@@ -216,6 +253,6 @@ impl Sub<TimeStamp> for TimeStamp {
 #[inline]
 fn impressive() -> ! {
     panic!(
-        "Process runs for more than 500 years. Impressive. Upgrade to version with u128 value type"
+        "Process runs for more than 200 years. Impressive. Upgrade to version with 128 bit integers"
     )
 }

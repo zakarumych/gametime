@@ -113,7 +113,9 @@ impl ClockRate {
     /// Advances the clock by given time span and returns `ClockStep` result.
     /// with new time stamp and time span since previous step.
     pub fn step(&mut self, span: TimeSpan) -> ClockStep {
-        let nanos = span.as_nanos();
+        assert!(!span.is_negative(), "Negative time span is not allowed");
+
+        let nanos = span.as_nanos() as u64;
         let nom_nanos = nanos * self.nom;
 
         if self.until_next > nom_nanos {
@@ -129,7 +131,7 @@ impl ClockRate {
         let nom_nanos_left = (nom_nanos - self.until_next) % self.denom;
         self.until_next = self.denom.get() - nom_nanos_left;
 
-        let clock_span = TimeSpan::new(clock_nanos);
+        let clock_span = TimeSpan::new(clock_nanos as i64);
         self.now += clock_span;
 
         ClockStep {
@@ -218,7 +220,6 @@ fn ftor(value: f32) -> (u64, u64) {
     let g = gcd(nom, denom);
     (nom / g, denom / g)
 }
-
 
 #[test]
 fn test_large() {
